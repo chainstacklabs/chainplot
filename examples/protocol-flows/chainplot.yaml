@@ -1,0 +1,73 @@
+format_version: 1
+id: protocol-flows
+policy:
+  block_budget: 100000
+  # The page stays small and the parquet is published beside it, so a fork
+  # can fetch and verify it on demand. Compare transfer-traffic, which puts the
+  # data inside the release, and usdc-supply, which publishes no data at all.
+  release_mode: dataset_referenced
+chain_sources:
+  - id: mainnet
+    chain_id: 1
+    rpc_secret: RPC_URL
+    finality:
+      policy: finalized
+event_sources:
+  - id: weth
+    chain: mainnet
+    addresses:
+      - "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2"
+    abi: abis/WETH.json
+    events:
+      - Deposit
+      - Withdrawal
+    start_block: 18600000
+    end:
+      mode: pinned
+      block: 18600010
+datasets:
+  - id: weth_deposit
+    snapshot: .chainplot/snapshots/weth/weth_deposit.parquet
+  - id: weth_withdrawal
+    snapshot: .chainplot/snapshots/weth/weth_withdrawal.parquet
+queries:
+  - id: deposit_count
+    file: queries/deposit_count.sql
+    dataset: weth_deposit
+  - id: withdrawal_count
+    file: queries/withdrawal_count.sql
+    dataset: weth_withdrawal
+  - id: largest_deposits
+    file: queries/largest_deposits.sql
+    dataset: weth_deposit
+    title: Largest deposits
+    raw_amount_columns:
+      - name: wad
+        decimals: 18
+        symbol: WETH
+        label: Amount
+dashboards:
+  - id: flows
+    title: WETH wrap/unwrap
+    description: Deposits into and withdrawals from WETH9.
+    panels:
+      - query: deposit_count
+        chart: kpi
+        title: Deposits
+        unit: wraps
+      - query: withdrawal_count
+        chart: kpi
+        title: Withdrawals
+        unit: unwraps
+      - query: largest_deposits
+        chart: table
+        title: Largest deposits
+        description: Amounts shown at 18 decimals; ordered with cp_sortkey.
+        span: full
+publish_targets:
+  - id: r2
+    type: s3
+    bucket: chainplot-test
+    prefix: protocol-flows
+    public_base_url: https://pub-0593f9128f674400bcbbc940cf9f01b1.r2.dev
+    dataset_license: CC-BY-4.0

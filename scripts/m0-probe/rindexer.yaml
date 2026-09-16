@@ -1,0 +1,34 @@
+# Archive window. publicnode eth_getLogs on old ranges returns 403; set RPC_URL.
+name: ChainplotM0
+description: Throwaway M0 probe
+project_type: no-code
+networks:
+  - name: ethereum
+    chain_id: 1
+    rpc: ${RPC_URL}
+storage:
+  postgres:
+    enabled: true
+graphql:
+  enabled: false
+contracts:
+  - name: Usdc
+    details:
+      - network: ethereum
+        address: "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48"
+        start_block: 18600000
+        end_block: 18600010
+    abi: ./abis/ERC20.json
+    include_events:
+      - Transfer
+    timestamp: true
+  - name: Empty
+    details:
+      - network: ethereum
+        address: "0x000000000000000000000000000000000000dEaD"
+        start_block: 18600000
+        end_block: 18600010
+    abi: ./abis/ERC20.json
+    include_events:
+      - Transfer
+    timestamp: true

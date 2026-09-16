@@ -1,0 +1,4 @@
+dataset: amounts
+expect:
+  row_count: 8
+  columns: [amount, amount_sort]

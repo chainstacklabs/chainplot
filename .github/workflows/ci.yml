@@ -1,0 +1,92 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    name: Build & Test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: pnpm/action-setup@v6
+        with:
+          version: 11.24.0
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      # The viewer is a separate project with its own lockfile. Typecheck it
+      # explicitly: `vite build` does not, so a type error here would
+      # otherwise ship in the bundle every release embeds.
+      - name: Install viewer dependencies
+        run: pnpm --dir viewer install --frozen-lockfile
+
+      - name: Typecheck viewer
+        run: pnpm --dir viewer run typecheck
+
+      - name: Build CLI and viewer
+        run: pnpm build
+
+      - name: Run tests
+        run: pnpm vitest run
+
+  template-smoke:
+    name: Scaffolded template runs
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: pnpm/action-setup@v6
+        with:
+          version: 11.24.0
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm --dir viewer install --frozen-lockfile
+
+      - name: Build CLI and viewer
+        run: pnpm build
+
+      # The producer image is the CLI plus rindexer, which ships linux/amd64
+      # only. Every step below is what a user does from the template README;
+      # each of them was broken at some point and none was covered by a test.
+      - name: Build the producer image
+        run: |
+          docker build --platform linux/amd64 -t chainplot:local \
+            -f docker/producer.Dockerfile .
+
+      - name: Scaffold the template
+        run: |
+          node dist/cli/main.js init --template ingest-transfers \
+            --output "$RUNNER_TEMP/proj" --json
+
+      # No RPC is needed to prove the stack comes up and the CLI is reachable.
+      - name: Bring the stack up and drive the CLI
+        working-directory: ${{ runner.temp }}/proj
+        run: |
+          printf 'RPC_URL=http://127.0.0.1:1\n' > .env
+          docker compose up -d
+          docker compose ps
+          docker compose exec -T producer chainplot capabilities --json
+          docker compose exec -T producer chainplot validate --json
+
+      - name: Tear down
+        if: always()
+        working-directory: ${{ runner.temp }}/proj
+        run: docker compose down -v

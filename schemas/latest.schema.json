@@ -1,0 +1,12 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://chainplot.dev/schema/latest",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["prefix", "release_json_checksum"],
+  "properties": {
+    "schema_version": { "type": "integer" },
+    "prefix": { "type": "string" },
+    "release_json_checksum": { "type": "string" }
+  }
+}

@@ -1,0 +1,105 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://chainplot.dev/schema/release",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "project_id", "mode", "queries"],
+  "properties": {
+    "schema_version": { "type": "integer" },
+    "project_id": { "type": "string" },
+    "mode": {
+      "enum": ["results_only", "dataset_included", "dataset_referenced"]
+    },
+    "queries": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "dashboards": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "content_digest": {
+      "description": "sha256 over the sorted file checksums plus project id and mode. Stable across rebuilds of identical inputs, unlike generated_at.",
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "generated_at": { "type": "string" },
+    "freshness": {
+      "description": "How current the data is, and on whose authority. 'chain' answers from the last block proven complete; 'snapshot_mtime' admits it only knows the file's timestamp.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "snapshot_mtime"],
+      "properties": {
+        "kind": { "enum": ["chain", "snapshot_mtime"] },
+        "data_through": {
+          "oneOf": [
+            { "type": "null" },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["block"],
+              "properties": {
+                "block": { "type": "integer", "minimum": 0 },
+                "timestamp": { "type": ["string", "null"] }
+              }
+            }
+          ]
+        },
+        "indexed_at": { "type": ["string", "null"] },
+        "snapshot_mtime": { "type": "string" }
+      }
+    },
+    "snapshots": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["dataset_id", "snapshot_id"],
+        "properties": {
+          "dataset_id": { "type": "string" },
+          "snapshot_id": { "type": "string" }
+        }
+      }
+    },
+    "coverage": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["source_id", "start_block", "end_block", "status"],
+        "properties": {
+          "source_id": { "type": "string" },
+          "start_block": { "type": "integer" },
+          "end_block": { "type": "integer" },
+          "status": { "type": "string" }
+        }
+      }
+    },
+    "finality": {
+      "oneOf": [
+        { "type": "null" },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["policy"],
+          "properties": {
+            "policy": { "enum": ["finalized", "confirmation_depth"] },
+            "depth": { "type": "integer", "minimum": 1 }
+          }
+        }
+      ]
+    },
+    "files": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["path", "checksum"],
+        "properties": {
+          "path": { "type": "string" },
+          "checksum": { "type": "string" }
+        }
+      }
+    }
+  }
+}

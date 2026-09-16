@@ -1,0 +1,25 @@
+format_version: 1
+id: fixture-transfers
+datasets:
+  - id: amounts
+    snapshot: snapshots/amounts.parquet
+queries:
+  - id: raw_amounts
+    file: queries/raw_amounts.sql
+    dataset: amounts
+    title: Signed int256 range
+    raw_amount_columns:
+      - name: amount
+        label: Amount (raw)
+dashboards:
+  - id: overview
+    title: Amounts
+    description: >-
+      Eight values spanning the full signed 256-bit range, carried as decimal
+      strings so nothing is rounded on the way to the page.
+    panels:
+      - query: raw_amounts
+        chart: table
+        title: uint256 round-trip
+        description: Sorted with cp_sortkey, so -2^255 lands before -1.
+        span: full

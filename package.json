@@ -1,0 +1,48 @@
+{
+  "name": "chainplot",
+  "version": "0.1.0",
+  "description": "Agent-first toolkit: scoped onchain events → reproducible dataset → static dashboard",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/chainstacklabs/chainplot"
+  },
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22 <27"
+  },
+  "packageManager": "pnpm@11.24.0",
+  "bin": {
+    "chainplot": "./dist/cli/main.js"
+  },
+  "files": [
+    "dist",
+    "schemas",
+    "templates",
+    "viewer/dist",
+    "LICENSE",
+    "NOTICES.md",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json && pnpm run build:viewer",
+    "build:cli": "tsc -p tsconfig.json",
+    "build:viewer": "pnpm --dir viewer install --frozen-lockfile && pnpm --dir viewer run build",
+    "test": "pnpm build && vitest run"
+  },
+  "dependencies": {
+    "@aws-sdk/client-s3": "^3.1131.0",
+    "@duckdb/node-api": "1.5.5-r.4",
+    "ajv": "^8.20.0",
+    "commander": "^15.0.0",
+    "pg": "^8.23.0",
+    "yaml": "^2.9.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.20.2",
+    "@types/pg": "^8.23.1",
+    "typescript": "^7.0.2",
+    "vitest": "^5.0.0"
+  }
+}

@@ -1,0 +1,27 @@
+# M0 probe only. Our Postgres, pinned rindexer image, no docker.sock.
+# Spec ingest runtime: Compose, Chainplot-owned DB, no rindexer docker-socket provisioning.
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: chainplot
+      POSTGRES_PASSWORD: chainplot
+      POSTGRES_DB: chainplot
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U chainplot -d chainplot"]
+      interval: 2s
+      timeout: 5s
+      retries: 30
+
+  rindexer:
+    platform: linux/amd64
+    image: ghcr.io/joshstevens19/rindexer@sha256:9b33da8cea740b74ebfdfd3932682e8ceab79cbcf2eb3a7ca0863ac413794dd7
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://chainplot:chainplot@postgres:5432/chainplot
+      RPC_URL: ${RPC_URL:?set RPC_URL to an archive-capable Ethereum JSON-RPC}
+    volumes:
+      - ./:/app/project_path
+    command: ["start", "-p", "/app/project_path", "indexer"]

@@ -1,0 +1,151 @@
+format_version: 1
+id: usdc-supply
+policy:
+  # A year is ~2.6M blocks, well past the 100k default. 400k keeps each job
+  # inside the 30 min wall clock, so every run closes and records coverage.
+  block_budget: 400000
+  # Default anyway; stated because this project's parquet is ~163 MB and the
+  # page it feeds is under a megabyte.
+  release_mode: results_only
+chain_sources:
+  - id: mainnet
+    chain_id: 1
+    rpc_secret: RPC_URL
+    finality:
+      policy: finalized
+event_sources:
+  - id: mint
+    chain: mainnet
+    addresses: ["0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48"]
+    abi: abis/ERC20.json
+    events: [Transfer]
+    indexed_filters:
+      - event_name: Transfer
+        indexed_1: ["0x0000000000000000000000000000000000000000"]
+    start_block: 23400000
+    end:
+      mode: pinned
+      block: 25987000
+  - id: burn
+    chain: mainnet
+    addresses: ["0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48"]
+    abi: abis/ERC20.json
+    events: [Transfer]
+    indexed_filters:
+      - event_name: Transfer
+        indexed_2: ["0x0000000000000000000000000000000000000000"]
+    start_block: 23400000
+    end:
+      mode: pinned
+      block: 25987000
+datasets:
+  - id: mint
+    snapshot: .chainplot/snapshots/mint/mint_transfer.parquet
+  - id: burn
+    snapshot: .chainplot/snapshots/burn/burn_transfer.parquet
+queries:
+  - id: net_change
+    file: queries/net_change.sql
+    dataset: mint
+    title: Net supply change
+    raw_amount_columns:
+      - name: net_change
+        decimals: 6
+        symbol: USDC
+  - id: total_minted
+    file: queries/total_minted.sql
+    dataset: mint
+    title: Total minted
+    raw_amount_columns:
+      - name: minted
+        decimals: 6
+        symbol: USDC
+  - id: total_burned
+    file: queries/total_burned.sql
+    dataset: burn
+    title: Total burned
+    raw_amount_columns:
+      - name: burned
+        decimals: 6
+        symbol: USDC
+  - id: daily_flow
+    file: queries/daily_flow.sql
+    dataset: mint
+    title: Daily mint and burn
+    raw_amount_columns:
+      - name: minted
+        decimals: 6
+        symbol: USDC
+        label: Minted
+      - name: burned
+        decimals: 6
+        symbol: USDC
+        label: Burned
+  - id: cumulative_net
+    file: queries/cumulative_net.sql
+    dataset: mint
+    title: Cumulative net issuance
+    raw_amount_columns:
+      - name: cumulative_net
+        decimals: 6
+        symbol: USDC
+        label: Cumulative net
+  - id: daily_events
+    file: queries/daily_events.sql
+    dataset: mint
+    title: Daily mint and burn events
+  - id: largest_mints
+    file: queries/largest_mints.sql
+    dataset: mint
+    title: Largest single mints
+    raw_amount_columns:
+      - name: value
+        decimals: 6
+        symbol: USDC
+        label: Amount
+models:
+  - id: daily
+    file: models/daily.sql
+    depends_on: []
+dashboards:
+  - id: supply
+    title: USDC supply changes
+    description: >-
+      Every USDC mint and burn on Ethereum mainnet over roughly the last year,
+      indexed directly from Transfer events to and from the zero address.
+    panels:
+      - query: net_change
+        chart: kpi
+        title: Net issuance
+        description: Minted minus burned across the window.
+      - query: total_minted
+        chart: kpi
+        title: Minted
+      - query: total_burned
+        chart: kpi
+        title: Burned
+      - query: cumulative_net
+        chart: area
+        title: Cumulative net issuance
+        description: Running total of mints minus burns.
+        span: full
+      - query: daily_flow
+        chart: bar
+        title: Daily mint and burn
+        span: full
+      - query: daily_events
+        chart: line
+        title: Daily event counts
+        description: How many mint and burn events settled each day.
+        span: full
+      - query: largest_mints
+        chart: table
+        title: Largest single mints
+        span: full
+publish_targets:
+  - id: r2
+    type: s3
+    bucket: chainplot-test
+    prefix: usdc-supply
+    public_base_url: https://pub-0593f9128f674400bcbbc940cf9f01b1.r2.dev
+    dataset_license: CC-BY-4.0

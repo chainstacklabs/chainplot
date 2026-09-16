@@ -1,0 +1,17 @@
+node_modules/
+/dist/
+examples/**/dist/
+.chainplot/
+.worktrees/
+.superpowers/
+.env
+.env.*
+!.env.example
+*.log
+.DS_Store
+coverage/
+.pnpm-store/
+.vitest/
+viewer/node_modules
+# Built from viewer/src by `pnpm build`; committing it lets the two drift.
+viewer/dist/

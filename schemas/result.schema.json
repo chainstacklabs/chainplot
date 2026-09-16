@@ -1,0 +1,52 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://chainplot.dev/schema/result",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "ok", "command", "data", "warnings", "error"],
+  "properties": {
+    "schema_version": { "type": "integer", "const": 1 },
+    "ok": { "type": "boolean" },
+    "command": { "type": "string" },
+    "data": {},
+    "warnings": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "error": {
+      "oneOf": [
+        { "type": "null" },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "code",
+            "message",
+            "resource_id",
+            "pointer",
+            "retryable",
+            "suggested_next"
+          ],
+          "properties": {
+            "code": {
+              "enum": [
+                "validation",
+                "missing_credentials",
+                "unsupported_capability",
+                "policy_refused",
+                "source_inconsistent",
+                "transient_dependency",
+                "internal"
+              ]
+            },
+            "message": { "type": "string" },
+            "resource_id": { "type": ["string", "null"] },
+            "pointer": { "type": ["string", "null"] },
+            "retryable": { "type": "boolean" },
+            "suggested_next": { "type": ["string", "null"] }
+          }
+        }
+      ]
+    }
+  }
+}

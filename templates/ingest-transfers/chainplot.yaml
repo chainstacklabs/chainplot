@@ -1,0 +1,42 @@
+format_version: 1
+id: ingest-transfers
+policy:
+  block_budget: 100000
+chain_sources:
+  - id: mainnet
+    chain_id: 1
+    rpc_secret: RPC_URL
+    finality:
+      policy: finalized
+event_sources:
+  - id: usdc
+    chain: mainnet
+    addresses:
+      - "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48"
+    abi: abis/ERC20.json
+    events:
+      - Transfer
+    start_block: 18600000
+    end:
+      mode: pinned
+      block: 18600010
+datasets:
+  - id: usdc
+    snapshot: .chainplot/snapshots/usdc/usdc_transfer.parquet
+queries:
+  - id: transfer_count
+    file: queries/transfer_count.sql
+    dataset: usdc
+    title: Transfers observed
+    raw_amount_columns:
+      - name: value
+        decimals: 6
+        symbol: USDC
+dashboards:
+  - id: overview
+    title: USDC transfers
+    panels:
+      - query: transfer_count
+        chart: kpi
+        title: Transfers
+        unit: transfers

@@ -1,0 +1,63 @@
+format_version: 1
+id: transfer-traffic
+policy:
+  block_budget: 100000
+  # Ship the parquet: this example exists to be forked and recomputed.
+  # The default is results_only, which publishes the page without the data.
+  release_mode: dataset_included
+chain_sources:
+  - id: mainnet
+    chain_id: 1
+    rpc_secret: RPC_URL
+    finality:
+      policy: finalized
+event_sources:
+  - id: usdc
+    chain: mainnet
+    addresses:
+      - "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48"
+    abi: abis/ERC20.json
+    events:
+      - Transfer
+    start_block: 18600000
+    end:
+      mode: pinned
+      block: 18600010
+datasets:
+  - id: usdc
+    snapshot: .chainplot/snapshots/usdc/usdc_transfer.parquet
+queries:
+  - id: transfer_count
+    file: queries/transfer_count.sql
+    dataset: usdc
+    title: Transfers observed
+  - id: top_transfers
+    file: queries/top_transfers.sql
+    dataset: usdc
+    title: Largest transfers
+    raw_amount_columns:
+      - name: value
+        decimals: 6
+        symbol: USDC
+        label: Amount
+dashboards:
+  - id: transfer-activity
+    title: USDC transfer activity
+    description: Every USDC transfer in blocks 18,600,000-18,600,010.
+    panels:
+      - query: transfer_count
+        chart: kpi
+        title: Transfers
+        unit: transfers
+      - query: top_transfers
+        chart: table
+        title: Largest transfers
+        description: Ranked by value; amounts shown at 6 decimals.
+        span: full
+publish_targets:
+  - id: r2
+    type: s3
+    bucket: chainplot-test
+    prefix: transfer-traffic
+    public_base_url: https://pub-0593f9128f674400bcbbc940cf9f01b1.r2.dev
+    dataset_license: CC-BY-4.0

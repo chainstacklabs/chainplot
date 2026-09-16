@@ -1,0 +1,431 @@
+/* Chainstack design tokens, transcribed from cp-ui-kit (src/styles/tailwind.css
+   and src/styles/theme.ts) rather than imported — a release is a static page
+   with no build step of its own, so the kit's Tailwind pipeline cannot run here.
+   Names mirror the kit's so the two stay comparable.
+
+   Fonts are named, not bundled: Suisse Intl is licensed, and these pages are
+   published to public buckets. Anyone with it installed gets it; everyone else
+   gets the system stack. */
+:root {
+  color-scheme: light dark;
+
+  /* Background */
+  --bg: #f5f8fc;
+  --bg-elevated: #ffffff;
+  --bg-row: #fbfdff;
+  --bg-header: #f3f8fc;
+
+  /* Text */
+  --text-primary: #22252a;
+  --text-secondary: #606772;
+  --text-tertiary: #9aa3ac;
+
+  /* Border */
+  --border-static: #e4ebf1;
+  --border-default: #d7e0e9;
+  --border-hover: #b3bfcc;
+
+  /* Brand */
+  --blue-brand: #007bff;
+  --blue-light: #cce9ff;
+  --blue-dark: #003399;
+
+  /* Status: surface + contrast pairs */
+  --success-surface: #d6f5e0;
+  --success-contrast: #25b15f;
+  --warning-surface: #fff6cc;
+  --warning-contrast: #ffd102;
+  --error-surface: #fce8eb;
+  --error-contrast: #ff1a40;
+  --info-surface: #e5f4ff;
+  --info-contrast: #0095ff;
+
+  --shadow: 0 1px 2px rgb(18 24 33 / 4%), 0 1px 3px rgb(18 24 33 / 6%);
+
+  /* Radius scale: xs 4, s 6, m 8, l 12, xl 16 */
+  --radius-xs: 4px;
+  --radius-s: 6px;
+  --radius-m: 8px;
+  --radius-l: 12px;
+  --radius-full: 1000px;
+
+  --sans: "Suisse Intl", ui-sans-serif, system-ui, -apple-system, "Segoe UI",
+    Roboto, "Helvetica Neue", Arial, sans-serif;
+  --mono: "Source Code Pro", "Courier Prime", ui-monospace, SFMono-Regular,
+    Menlo, Consolas, "Liberation Mono", monospace;
+
+  font-family: var(--sans);
+  font-size: 15px;
+  line-height: 1.5;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #090a0b;
+    --bg-elevated: #1f2228;
+    --bg-row: #0f1114;
+    --bg-header: #14171b;
+
+    --text-primary: #f6f9fd;
+    --text-secondary: #8d95a5;
+    --text-tertiary: #656e80;
+
+    --border-static: #2e3338;
+    --border-default: #40474e;
+    --border-hover: #5e666e;
+
+    --blue-brand: #007bff;
+    --blue-light: #004c9e;
+    --blue-dark: #4dafff;
+
+    --success-surface: #124a24;
+    --success-contrast: #2dd272;
+    --warning-surface: #563906;
+    --warning-contrast: #ffdd33;
+    --error-surface: #591721;
+    --error-contrast: #ff294c;
+    --info-surface: #0b3f65;
+    --info-contrast: #25a4ff;
+
+    --shadow: none;
+  }
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text-primary);
+  -webkit-font-smoothing: antialiased;
+}
+
+.app {
+  max-width: 1180px;
+  margin: 0 auto;
+  padding: 2.5rem 1.25rem 4rem;
+}
+
+/* ---- masthead ---- */
+
+.masthead h1 {
+  margin: 0 0 0.75rem;
+  font-size: 1.375rem; /* font-xl */
+  font-weight: 600;
+  letter-spacing: -0.015em;
+}
+
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
+.chip {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.4rem;
+  padding: 0.25rem 0.65rem;
+  border: 1px solid var(--border-static);
+  border-radius: var(--radius-full);
+  background: var(--bg-elevated);
+  font-size: 0.75rem;
+  white-space: nowrap;
+}
+
+.chip-label {
+  color: var(--text-tertiary);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  font-size: 0.625rem;
+  font-weight: 600;
+}
+
+.chip-value {
+  font-variant-numeric: tabular-nums;
+}
+
+.chip-good {
+  background: var(--success-surface);
+  border-color: transparent;
+  color: var(--success-contrast);
+}
+
+.chip-warn {
+  background: var(--warning-surface);
+  border-color: transparent;
+  color: var(--warning-contrast);
+}
+
+/* ---- dashboards ---- */
+
+.dashboard {
+  margin-top: 2.25rem;
+}
+
+.dashboard-head {
+  margin-bottom: 1rem;
+}
+
+.dashboard-head h2 {
+  margin: 0;
+  font-size: 1.125rem; /* font-l */
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+.dashboard-head p {
+  margin: 0.35rem 0 0;
+  color: var(--text-secondary);
+  font-size: 0.875rem;
+}
+
+.panel-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1rem;
+  align-items: start;
+}
+
+.panel {
+  /* min-width:0 lets a grid child shrink, which is what keeps a wide table
+     inside its card instead of stretching the whole row. */
+  min-width: 0;
+  padding: 1rem 1.25rem 1.25rem;
+  border: 1px solid var(--border-static);
+  border-radius: var(--radius-l);
+  background: var(--bg-elevated);
+  box-shadow: var(--shadow);
+}
+
+.panel.span-full {
+  grid-column: 1 / -1;
+}
+
+.panel-head {
+  margin-bottom: 0.85rem;
+}
+
+.panel-head h3 {
+  margin: 0;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.panel-head p {
+  margin: 0.3rem 0 0;
+  font-size: 0.8125rem;
+  color: var(--text-tertiary);
+}
+
+/* ---- kpi ---- */
+
+.kpi {
+  display: flex;
+  align-items: baseline;
+  gap: 0.55rem;
+  flex-wrap: wrap;
+}
+
+.kpi-value {
+  font-size: clamp(1.75rem, 4.5vw, 2rem); /* font-xxl ceiling */
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  font-variant-numeric: tabular-nums;
+  /* Long uint256 values wrap instead of widening the grid column. */
+  overflow-wrap: anywhere;
+}
+
+.kpi-unit {
+  font-size: 0.75rem;
+  color: var(--text-tertiary);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+/* ---- table ---- */
+
+.table-scroll {
+  overflow-x: auto;
+  max-height: 460px;
+  overflow-y: auto;
+  border: 1px solid var(--border-static);
+  border-radius: var(--radius-m);
+}
+
+table.data-table {
+  border-collapse: separate;
+  border-spacing: 0;
+  width: 100%;
+  font-size: 0.8125rem;
+}
+
+table.data-table th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  height: 40px;
+  padding: 0;
+  background: var(--bg-header);
+  border-bottom: 1px solid var(--border-static);
+  white-space: nowrap;
+}
+
+table.data-table th button {
+  width: 100%;
+  padding: 0 0.75rem;
+  border: 0;
+  background: none;
+  color: var(--text-secondary);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+  /* `th` defaults to centre; headings must line up with their own cells. */
+  text-align: left;
+}
+
+table.data-table th button:hover {
+  color: var(--blue-brand);
+}
+
+table.data-table th.numeric button {
+  text-align: right;
+}
+
+.sort-arrow {
+  display: inline-block;
+  width: 0.9em;
+  color: var(--blue-brand);
+}
+
+table.data-table td {
+  padding: 0.5rem 0.75rem;
+  border-bottom: 1px solid var(--border-static);
+  background: var(--bg-elevated);
+  white-space: nowrap;
+}
+
+table.data-table tbody tr:last-child td {
+  border-bottom: 0;
+}
+
+table.data-table tbody tr:hover td {
+  background: var(--bg-row);
+}
+
+table.data-table .numeric {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+table.data-table td.text {
+  font-family: var(--mono);
+  font-size: 0.78rem;
+  color: var(--text-secondary);
+}
+
+table.data-table th.raw button::after {
+  content: "·";
+  margin-left: 0.3rem;
+  color: var(--blue-brand);
+}
+
+/* ---- charts, states, footer ---- */
+
+.chart {
+  width: 100%;
+  height: 280px;
+}
+
+.panel.span-full .chart {
+  height: 340px;
+}
+
+/* ---- loading skeleton ---- */
+
+.skeleton {
+  border-radius: var(--radius-m);
+  background: linear-gradient(
+    90deg,
+    var(--bg-elevated) 25%,
+    var(--bg-header) 37%,
+    var(--bg-elevated) 63%
+  );
+  background-size: 400% 100%;
+  animation: skeleton-sheen 1.4s ease-in-out infinite;
+}
+
+.skeleton-title {
+  width: min(18rem, 60%);
+  height: 1.6rem;
+  margin-bottom: 0.9rem;
+}
+
+.skeleton-chip {
+  width: 9rem;
+  height: 1.55rem;
+  border-radius: var(--radius-full);
+}
+
+.skeleton-panel {
+  height: 9rem;
+  border: 1px solid var(--border-static);
+}
+
+@keyframes skeleton-sheen {
+  from {
+    background-position: 100% 50%;
+  }
+  to {
+    background-position: 0 50%;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .skeleton {
+    animation: none;
+  }
+}
+
+.empty {
+  margin: 0;
+  padding: 1.25rem 0;
+  color: var(--text-tertiary);
+  font-size: 0.85rem;
+}
+
+.error-note {
+  margin: 0;
+  padding: 0.65rem 0.8rem;
+  border-radius: var(--radius-s);
+  background: var(--error-surface);
+  color: var(--error-contrast);
+  font-family: var(--mono);
+  font-size: 0.78rem;
+  white-space: pre-wrap;
+}
+
+.colophon {
+  margin-top: 3rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--border-static);
+  color: var(--text-tertiary);
+  font-size: 0.75rem;
+}
+
+.colophon span {
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+@media (max-width: 760px) {
+  .app {
+    padding: 1.5rem 0.9rem 3rem;
+  }
+  .panel-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
