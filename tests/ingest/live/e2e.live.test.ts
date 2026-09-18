@@ -130,6 +130,64 @@ describe("live ingest end-to-end (M0 replay through the product)", () => {
         path.join(cwd, ".env"),
         `RPC_URL=${rpcUrl}\nDATABASE_URL=postgresql://chainplot:chainplot@postgres:5432/chainplot\n`,
       );
+
+      // A second source whose event name is more than one word. rindexer
+      // snake_cases it into `transfer_shares`; the template's `Transfer` is
+      // the one name where lowercasing gives the same answer, so only a
+      // multi-word event proves that coverage and export find the table.
+      // Lido stETH emits TransferShares with every transfer.
+      fs.writeFileSync(
+        path.join(cwd, "abis/stETH.json"),
+        JSON.stringify([
+          {
+            type: "event",
+            name: "TransferShares",
+            anonymous: false,
+            inputs: [
+              { indexed: true, name: "from", type: "address" },
+              { indexed: true, name: "to", type: "address" },
+              { indexed: false, name: "sharesValue", type: "uint256" },
+            ],
+          },
+        ]),
+      );
+      const yamlPath = path.join(cwd, "chainplot.yaml");
+      const yaml = fs.readFileSync(yamlPath, "utf8");
+      expect(yaml).toContain("\ndatasets:\n");
+      expect(yaml).toContain("\nqueries:\n");
+      fs.writeFileSync(
+        yamlPath,
+        yaml
+          .replace(
+            "\ndatasets:\n",
+            [
+              "",
+              "  - id: steth",
+              "    chain: mainnet",
+              "    addresses:",
+              '      - "0xae7ab96520de3a18e5e111b5eaab095312d7fe84"',
+              "    abi: abis/stETH.json",
+              "    events:",
+              "      - TransferShares",
+              "    start_block: 18600000",
+              "    end:",
+              "      mode: pinned",
+              "      block: 18600100",
+              "datasets:",
+              "",
+            ].join("\n"),
+          )
+          .replace(
+            "\nqueries:\n",
+            [
+              "",
+              "  - id: steth",
+              "    snapshot: .chainplot/snapshots/steth/steth_transfershares.parquet",
+              "queries:",
+              "",
+            ].join("\n"),
+          ),
+      );
       await compose(cwd, ["up", "-d"]);
 
       const plan = await cli(cwd, ["plan", "--intent", "ingest"]);
@@ -163,7 +221,16 @@ describe("live ingest end-to-end (M0 replay through the product)", () => {
         }[];
       };
       expect(coverage.chain_id).toBe(1);
+      expect(coverage.sources).toHaveLength(2);
       expect(coverage.sources[0].segments).toHaveLength(1);
+      // The multi-word event: rows were found in rindexer's snake_cased
+      // table, and the export wrote the parquet the dataset names.
+      const steth = coverage.sources[1].segments[0]!;
+      expect(steth).toMatchObject({ end_block: 18600100, status: "complete_with_rows" });
+      expect(steth.row_count).toBeGreaterThan(0);
+      expect(
+        fs.existsSync(path.join(cwd, ".chainplot/snapshots/steth/steth_transfershares.parquet")),
+      ).toBe(true);
       const segment = coverage.sources[0].segments[0]!;
       expect(segment).toMatchObject({
         start_block: 18600000,
@@ -201,7 +268,8 @@ describe("live ingest end-to-end (M0 replay through the product)", () => {
         ),
       ) as { freshness: { kind: string; data_through: { block: number } } };
       expect(release.freshness.kind).toBe("chain");
-      expect(release.freshness.data_through.block).toBe(18600010);
+      // Data reaches as far as the furthest source: the stETH range ends later.
+      expect(release.freshness.data_through.block).toBe(18600100);
 
       // Truncation probe: drop coverage → build refuses (M2 gate).
       fs.rmSync(path.join(cwd, ".chainplot/coverage.json"));

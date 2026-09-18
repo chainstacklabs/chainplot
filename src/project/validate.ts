@@ -5,6 +5,7 @@ import { Ajv2020, type ErrorObject } from "ajv/dist/2020.js";
 import type { CommandError } from "../cli/envelope.js";
 import { topoSortModels } from "./modelGraph.js";
 import type { ProjectDocument } from "./types.js";
+import { tableNameOverflow } from "../ingest/rindexer/naming.js";
 
 const SCHEMA_PATH = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
@@ -88,8 +89,27 @@ export function validateProject(
     (project.chain_sources ?? []).map((c) => [c.id, c] as const),
   );
   for (const [index, source] of (project.event_sources ?? []).entries()) {
-    if (source.end.mode !== "follow_finalized") continue;
     const chain = chains.get(source.chain);
+    // rindexer snake_cases every name into a Postgres identifier, which has a
+    // 63-character ceiling; past it the table cannot be found by derivation.
+    // Refuse here, before a single block is indexed.
+    for (const event of source.events) {
+      const overflow = tableNameOverflow(
+        `chainplot_${chain?.chain_id ?? 0}`,
+        source.id.toLowerCase(),
+        event,
+      );
+      if (overflow !== null) {
+        return {
+          ok: false,
+          error: error("validation", overflow, {
+            resource_id: source.id,
+            pointer: `/event_sources/${index}/events`,
+          }),
+        };
+      }
+    }
+    if (source.end.mode !== "follow_finalized") continue;
     if (chain?.finality.policy === "confirmation_depth") {
       return {
         ok: false,

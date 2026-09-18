@@ -56,3 +56,29 @@ describe("validate", () => {
     expect(result.error?.message).toContain("missing model file");
   });
 });
+
+// rindexer turns an event name into a Postgres identifier, and Postgres stops
+// at 63 characters. A project past that limit indexes fine and then cannot
+// find its own tables, so `validate` refuses it with the fix spelled out.
+describe("validate refuses table names rindexer would compact", () => {
+  it("names the source and the event", async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "chainplot-longname-"));
+    fs.cpSync(
+      path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../templates/ingest-transfers"),
+      dir,
+      { recursive: true },
+    );
+    const yamlPath = path.join(dir, "chainplot.yaml");
+    fs.writeFileSync(
+      yamlPath,
+      fs
+        .readFileSync(yamlPath, "utf8")
+        .replace("      - Transfer", "      - TransferWithAVeryLongEventNameThatOverflowsAPostgresIdentifier"),
+    );
+    const result = await runCliJson(["validate", "--json"], dir);
+    expect(result.ok).toBe(false);
+    expect(result.error?.code).toBe("validation");
+    expect(result.error?.message).toMatch(/63/);
+    expect(result.error?.pointer).toBe("/event_sources/0/events");
+  });
+});

@@ -6,29 +6,14 @@ import {
   type CoverageStatus,
 } from "../adapter.js";
 
-// rindexer derives table names from the manifest `name` (not the network):
-// event table `{name}_{contract}.{event}`, cursor
-// `rindexer_internal.{name}_{contract}_{event}`. renderConfig sets
-// name = `chainplot_<networkName>`.
-export function manifestName(networkName: string): string {
-  return `chainplot_${networkName}`;
-}
-
-export function cursorTableName(
-  networkName: string,
-  contractName: string,
-  event: string,
-): string {
-  return `rindexer_internal.${manifestName(networkName)}_${contractName}_${event.toLowerCase()}`;
-}
-
-export function eventTableName(
-  networkName: string,
-  contractName: string,
-  event: string,
-): string {
-  return `${manifestName(networkName)}_${contractName}.${event.toLowerCase()}`;
-}
+// Table names are derived in naming.ts, which ports rindexer's own snake_case
+// rule; re-exported here because this is where callers look for them.
+export {
+  cursorTableName,
+  eventTableName,
+  manifestName,
+} from "./naming.js";
+import { cursorTableName, eventTableName } from "./naming.js";
 
 export function buildCursorQuery(
   networkName: string,

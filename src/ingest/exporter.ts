@@ -77,6 +77,9 @@ export async function exportEventTable(
     contractName: job.contractName,
     event: job.events[0],
     chainId: job.chainId,
+    // The file name is chainplot's own convention (documented in the
+    // templates' `snapshot:` paths); only the table it reads from follows
+    // rindexer's snake_case naming, via eventTableName.
     outPath: path.join(outDir, `${job.contractName}_${job.events[0].toLowerCase()}.parquet`),
   };
   const { modulePath, execArgv } = workerLaunch();
