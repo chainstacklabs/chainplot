@@ -60,7 +60,7 @@ visible in review rather than only in production.
 |---|---|---|
 | Chains per project | 1 | `schemas/project.schema.json` (`maxItems`) |
 | Contract addresses | 20 | `schemas/project.schema.json` (`maxItems`) |
-| Blocks per approved run | 100_000, `policy.block_budget` to change | `src/plan/generate.ts` (`DEFAULT_BLOCK_BUDGET`) |
+| Blocks per approved run | 100_000, `policy.block_budget` to change. A block count, not a duration: 100k blocks is about 14 days on Ethereum (12 s blocks), 2.3 days on Base (2 s), 7 hours on Arbitrum One (0.25 s) — set it for the chain you index | `src/plan/generate.ts` (`DEFAULT_BLOCK_BUDGET`) |
 | Query deadline | 60 s | `src/query/runQuery.ts` (`DEADLINE_MS`, SIGKILL) |
 | DuckDB memory | 1 GiB, spills to a temp dir | `src/query/workerMain.ts` (`MEMORY_LIMIT`) |
 | Returned rows | 10_000, `policy.row_limit` to change | `src/project/limits.ts`, enforced in `src/query/workerMain.ts` (the reader stops at the limit) |

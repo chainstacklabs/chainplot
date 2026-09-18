@@ -1,6 +1,10 @@
 format_version: 1
 id: ingest-transfers
 policy:
+  # Blocks one approved run may cover; `plan` splits a longer range into runs
+  # of this size. It is a block count, so what it spans in time depends on the
+  # chain: 100000 blocks is about 14 days on Ethereum, 2.3 days on Base and
+  # 7 hours on Arbitrum One. Set it for the chain you index.
   block_budget: 100000
 chain_sources:
   - id: mainnet
