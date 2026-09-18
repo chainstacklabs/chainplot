@@ -15,6 +15,9 @@ to a directory target or an S3-compatible target (see its `chainplot.yaml`).
 
 ## Fork
 
+`chainplot` below is the CLI from a checkout of this repo: `pnpm build`, then
+`alias chainplot="node $PWD/dist/cli/main.js"` (or `pnpm link --global`).
+
 ```bash
 chainplot fork --from ./dist/releases/local --output ../forked-dashboard --json
 # or, against a publish root with latest.json:

@@ -17,6 +17,16 @@ node dist/cli/main.js init --template fixture-transfers --output ./demo --json
 cd demo && node ../dist/cli/main.js build --json && node ../dist/cli/main.js serve --json
 ```
 
+Nothing puts a `chainplot` command on your PATH — the package is not published.
+Where the docs write `chainplot …`, either alias it after `pnpm build`:
+
+```bash
+alias chainplot="node $PWD/dist/cli/main.js"
+```
+
+or run `pnpm link --global` once from the checkout. Inside the producer
+container the command is already on PATH.
+
 ---
 
 ## Why this instead of a notebook
