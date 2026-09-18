@@ -70,6 +70,14 @@ export async function exportEventTable(
   job: BoundedJob,
   outDir: string,
 ): Promise<ExportResult> {
+  // One parquet per event. apply fans a multi-event source out into one job
+  // per event before calling this; a job carrying several would silently
+  // export only the first, so it is refused rather than guessed at.
+  if (job.events.length !== 1) {
+    throw new Error(
+      `exportEventTable expects exactly one event per job, got ${job.events.length} for ${job.sourceId}`,
+    );
+  }
   fs.mkdirSync(outDir, { recursive: true });
   const req: ExportRequest = {
     databaseUrl: job.databaseUrl,
