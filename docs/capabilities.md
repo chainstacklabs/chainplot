@@ -20,7 +20,7 @@ Machine-readable source of truth: `chainplot capabilities --json`.
 | `build` | shipped | full static release; `--mode results_only\|dataset_referenced` |
 | `refresh` | shipped | `--publish-target` publishes |
 | `query` / `dataset describe` / `test` | shipped | offline over snapshots |
-| `serve` | shipped | 127.0.0.1 only |
+| `serve` | shipped | binds 127.0.0.1 by default; `--host 0.0.0.0` inside a container |
 | `publish` | shipped | directory + S3-compatible (R2 verified) |
 | `runs list\|show\|cancel` | shipped | cooperative cancel |
 | `fork` | shipped | deny-by-default SSRF guard |

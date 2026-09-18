@@ -123,7 +123,7 @@ limit 10
 | `apply --plan <ref>` | Execute that plan, and only that plan |
 | `refresh` | `plan --intent refresh` + `apply` |
 | `build` | Write the full static release |
-| `serve` | Preview a release on 127.0.0.1 |
+| `serve` | Preview a release; binds 127.0.0.1 unless `--host` says otherwise |
 | `publish` | Push a release to a directory or S3-compatible target |
 | `runs list\|show\|cancel` | Run journal; cancel is cooperative |
 | `fork` | Import a published release as a new project |

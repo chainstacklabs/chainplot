@@ -35,6 +35,10 @@ services:
     volumes:
       - ./:/workspace
     working_dir: /workspace
+    # `serve --host 0.0.0.0 --port 4173` inside the container is reachable from
+    # a browser on this machine at http://127.0.0.1:4173, and from nowhere else.
+    ports:
+      - "127.0.0.1:4173:4173"
     # The image entrypoint is the CLI itself, so a bare `command:` would be
     # read as CLI arguments. Hold the container open and drive it with
     # `docker compose exec producer chainplot <command> --json`.

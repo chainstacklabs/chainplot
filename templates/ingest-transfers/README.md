@@ -27,8 +27,13 @@ docker compose up -d
 docker compose exec producer chainplot plan --intent ingest --json
 docker compose exec producer chainplot apply --plan <plan_path> --json
 docker compose exec producer chainplot build --json
-docker compose exec producer chainplot serve --port 4173 --json
+docker compose exec producer chainplot serve --host 0.0.0.0 --port 4173 --json
 ```
+
+The last command keeps running; open <http://127.0.0.1:4173> in a browser on
+this machine. `compose.yaml` publishes that port to the host's loopback only,
+and `--host 0.0.0.0` is what lets the container answer on it — the default bind
+is the container's own loopback, which nothing outside can reach.
 
 `plan` is read-only and writes a digest-bound plan; `apply` executes that plan
 and nothing else. A release is refused unless the whole pinned block range is

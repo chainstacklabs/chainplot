@@ -20,8 +20,9 @@ docker compose exec producer chainplot plan --intent ingest --json
 docker compose exec producer chainplot apply --plan <plan_id> --json
 docker compose exec producer chainplot build --json
 
-# 3. Preview the dashboard (from the host, or serve inside the container)
-docker compose exec producer chainplot serve --port 4173 --json
+# 3. Preview the dashboard: serve inside the container, open it from the host
+docker compose exec producer chainplot serve --host 0.0.0.0 --port 4173 --json
+# then open http://127.0.0.1:4173 in a browser on this machine
 ```
 
 Coverage evidence comes from `rindexer_internal.*.last_synced_block` plus

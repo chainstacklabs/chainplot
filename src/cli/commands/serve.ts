@@ -19,16 +19,19 @@ export async function serveCommand(
   cwd: string,
   dir?: string,
   port = 0,
+  host = "127.0.0.1",
 ): Promise<CommandResult> {
   try {
     const target = path.resolve(cwd, dir ?? "dist/releases/local");
     validateServeDir(target);
-    const handle = startServe(target, port);
+    const handle = startServe(target, port, host);
     activeServer = handle;
     // The assigned port is only knowable once listen() has called back, so
     // reporting it before that yields the literal 0 the caller passed in.
     await handle.ready;
-    const url = `http://127.0.0.1:${handle.port}`;
+    // An unspecified bind address is not something a browser can open.
+    const shownHost = host === "0.0.0.0" || host === "::" ? "127.0.0.1" : host;
+    const url = `http://${shownHost}:${handle.port}`;
     // Diagnostics to stderr; stdout stays reserved for the result envelope.
     process.stderr.write(`serving ${target} at ${url} (Ctrl+C to stop)\n`);
     const shutdown = () => {

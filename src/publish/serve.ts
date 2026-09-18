@@ -21,7 +21,11 @@ export interface ServeHandle {
   close(): void;
 }
 
-export function startServe(rootDir: string, port: number): ServeHandle {
+export function startServe(
+  rootDir: string,
+  port: number,
+  host = "127.0.0.1",
+): ServeHandle {
   const root = path.resolve(rootDir);
   let readyResolve: (() => void) | null = null;
   const ready = new Promise<void>((resolve) => {
@@ -47,7 +51,11 @@ export function startServe(rootDir: string, port: number): ServeHandle {
     res.writeHead(200, { "content-type": type });
     fs.createReadStream(filePath).pipe(res);
   });
-  server.listen(port, "127.0.0.1", () => readyResolve?.());
+  // Loopback by default. Inside a container that loopback is the container's
+  // own, so a documented preview step needs `--host 0.0.0.0` plus a published
+  // port; the URL reported to the user stays the one that works from a host
+  // browser.
+  server.listen(port, host, () => readyResolve?.());
   const handle: ServeHandle = {
     get port(): number {
       const address = server.address();

@@ -82,3 +82,38 @@ describe("cli gating", () => {
     expect(fs.existsSync(path.join(dir, "dist", "releases"))).toBe(false);
   });
 });
+
+// Inside the producer container the default loopback is the container's own,
+// so the documented preview step printed a URL nothing on the host could
+// reach. `--host 0.0.0.0` plus a published port is the fix; the reported URL
+// must still be the one that works from a host browser.
+describe("serve --host", () => {
+  it("binds the requested address and reports a loopback URL for it", async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "chainplot-serve-host-"));
+    fs.cpSync(template, dir, { recursive: true });
+    await runCliJson(["build", "--json"], dir);
+
+    const result = await serveCommand(dir, undefined, 0, "0.0.0.0");
+    try {
+      expect(result.ok).toBe(true);
+      const { url } = result.data as { url: string };
+      expect(new URL(url).hostname).toBe("127.0.0.1");
+      expect((await fetch(`${url}/release.json`)).status).toBe(200);
+    } finally {
+      closeActiveServer();
+    }
+  });
+
+  it("is accepted on the command line", async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "chainplot-serve-cli-"));
+    fs.cpSync(template, dir, { recursive: true });
+    await runCliJson(["build", "--json"], dir);
+    const result = await runCliJson(["serve", "--host", "0.0.0.0", "--json"], dir);
+    try {
+      expect(result.ok).toBe(true);
+      expect((result.data as { url: string }).url).toMatch(/^http:\/\/127\.0\.0\.1:\d+$/);
+    } finally {
+      closeActiveServer();
+    }
+  });
+});

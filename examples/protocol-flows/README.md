@@ -9,8 +9,10 @@ activity of wrapped Ether.
 ## Run it
 
 Same runtime as example 1 (see its README): `docker compose up -d`, then
-`plan --intent ingest` → `apply` → `test` → `build` → `serve` inside the
-producer container. Requires `.env` with an archive-capable `RPC_URL`.
+`plan --intent ingest` → `apply` → `test` → `build` →
+`serve --host 0.0.0.0 --port 4173` inside the producer container, and open
+<http://127.0.0.1:4173> on the host. Requires `.env` with an archive-capable
+`RPC_URL`.
 
 ## What it shows
 

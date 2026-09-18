@@ -244,12 +244,21 @@ export async function runCli(
 
   program
     .command("serve")
-    .description("preview a built release over loopback HTTP")
+    .description("preview a built release over HTTP (127.0.0.1 by default)")
     .option("--dir <path>", "release directory (default: dist/releases/local)")
     .option("--port <n>", "port (default: random)", (v: string) => parseInt(v, 10))
-    .action(async (options: { dir?: string; port?: number }) => {
+    .option(
+      "--host <addr>",
+      "bind address (default: 127.0.0.1; 0.0.0.0 inside a container)",
+    )
+    .action(async (options: { dir?: string; port?: number; host?: string }) => {
       commandName = "serve";
-      result = await serveCommand(opts.cwd, options.dir, options.port ?? 0);
+      result = await serveCommand(
+        opts.cwd,
+        options.dir,
+        options.port ?? 0,
+        options.host ?? "127.0.0.1",
+      );
       if (result.ok) {
         // serve keeps the process alive; the envelope is printed by main.ts
         // only when it exits, so surface the URL immediately on stderr.
