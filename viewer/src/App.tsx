@@ -17,6 +17,9 @@ import {
   toChartNumber,
 } from "./format.js";
 
+/** Where a reader learns how to rebuild a release from its dataset. */
+const FORK_HOWTO_URL = "https://github.com/chainstacklabs/chainplot#fork-a-published-release";
+
 /** Columns the panel asked to compute but not show, e.g. an explicit sort key. */
 function visibleColumns(
   columns: ColumnMeta[],
@@ -527,6 +530,14 @@ export function App() {
       <footer className="colophon">
         Built by <span>chainplot</span> · {release.mode.replace(/_/g, " ")} ·{" "}
         <time dateTime={release.generated_at}>{release.generated_at}</time>
+        {" · "}
+        {release.mode === "results_only" ? (
+          <>results only: the dataset is not published, so this release cannot be recomputed</>
+        ) : (
+          <a href={FORK_HOWTO_URL} rel="noopener">
+            fork this release and recompute it
+          </a>
+        )}
       </footer>
     </main>
   );

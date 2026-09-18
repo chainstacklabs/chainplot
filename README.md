@@ -42,10 +42,12 @@ container the command is already on PATH.
 - **The output outlives the infrastructure.** A published release is static
   files. Your RPC provider, your Postgres, and this CLI can all be gone and the
   dashboard still renders.
-- **Anyone can fork it.** A release always ships the recipe, and can ship the
-  dataset with it, so a second person imports it, writes a new query, and
-  rebuilds — no reindexing, no credentials, no access to your RPC. That costs
-  upload size, so it is opt-in: see [What a release weighs](#what-a-release-weighs).
+- **Anyone can fork it.** A release always ships the recipe, and can ship or
+  reference the dataset, so a second person imports it, writes a new query,
+  and rebuilds — no reindexing, no credentials, no access to your RPC. The
+  default `results_only` release ships answers without the dataset, so a fork
+  of it cannot recompute; see [What a release weighs](#what-a-release-weighs)
+  and [Fork a published release](#fork-a-published-release).
 
 ## The pipeline
 
@@ -191,6 +193,28 @@ dashboard, and the default never trips it. A project whose parquet is larger tha
 page with `--mode results_only`; what you give up is the ability for someone
 forking it to recompute your numbers from source data, which is why the
 default keeps the data in.
+
+## Fork a published release
+
+Every dashboard's footer says whether it can be recomputed. It can when the
+release was built with `dataset_included` or `dataset_referenced`; a
+`results_only` release carries the recipe and the answers but no data, so a
+fork of it has nothing to rebuild from until it is pointed at a snapshot.
+
+Forking needs the CLI, which is this repository:
+
+```bash
+git clone https://github.com/chainstacklabs/chainplot && cd chainplot
+pnpm install && pnpm build
+# --from is the publish root: the URL that has latest.json under it
+node dist/cli/main.js fork --from https://<bucket>/<prefix> --output ../my-fork --json
+cd ../my-fork && node ../chainplot/dist/cli/main.js build --json
+```
+
+`fork` verifies every file against the release's checksums, pulls in a
+referenced dataset and checks it against its manifest, and strips the chain
+sources and publish targets — the new project is dataset-only and its first
+`publish` goes wherever you say. No RPC, no Postgres, no credentials.
 
 ## Security
 

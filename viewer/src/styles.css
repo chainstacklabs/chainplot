@@ -421,6 +421,12 @@ table.data-table th.raw button::after {
   color: var(--text-secondary);
 }
 
+.colophon a {
+  color: var(--text-secondary);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
 @media (max-width: 760px) {
   .app {
     padding: 1.5rem 0.9rem 3rem;
