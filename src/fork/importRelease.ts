@@ -70,6 +70,66 @@ function readLocal(releaseRoot: string, rel: string, maxBytes: number): Buffer {
   return fs.readFileSync(resolved);
 }
 
+/** guardedFetch only carries the status in its message, so match it there. */
+export function isReleaseNotFound(err: unknown): boolean {
+  return (err as { message?: string })?.message === "fork fetch: HTTP 404";
+}
+
+/**
+ * A remote `--from` may name a release directory or a publish root — the same
+ * two shapes the local branch already accepts. Try the release directly; if it
+ * is not there, follow latest.json and verify the checksum it names, so a
+ * pointer that has moved on cannot hand back a mismatched release.
+ *
+ * The publish root is the stable URL: the release prefix changes on every
+ * publish, so anything that documents one goes stale immediately.
+ */
+export async function resolveRemoteRelease(
+  base: string,
+  fetchOne: (url: string) => Promise<Buffer>,
+): Promise<{ body: Buffer; prefix: string | null }> {
+  try {
+    return { body: await fetchOne(`${base}/release.json`), prefix: null };
+  } catch (err) {
+    if (!isReleaseNotFound(err)) throw err;
+  }
+  const pointer = JSON.parse((await fetchOne(`${base}/latest.json`)).toString("utf8")) as {
+    release_prefix: string;
+    release_json_checksum: string;
+  };
+  const releaseBase = pointerReleaseUrl(base, pointer.release_prefix);
+  const body = await fetchOne(`${releaseBase}/release.json`);
+  if (createHash("sha256").update(body).digest("hex") !== pointer.release_json_checksum) {
+    throw commandError(
+      "policy_refused",
+      "fork: release.json does not match the latest.json pointer checksum",
+    );
+  }
+  return { body, prefix: relativePrefix(base, pointer.release_prefix) };
+}
+
+/**
+ * `release_prefix` in latest.json is written relative to the bucket, while
+ * `--from` is whatever URL the reader was given — usually the publish root,
+ * which already ends with the target's own prefix. Appending one to the other
+ * would repeat that prefix, so drop the segments they share.
+ */
+function relativePrefix(base: string, releasePrefix: string): string {
+  const basePath = new URL(base).pathname.split("/").filter(Boolean);
+  const parts = releasePrefix.split("/").filter(Boolean);
+  for (let n = Math.min(basePath.length, parts.length); n > 0; n--) {
+    if (basePath.slice(-n).join("/") === parts.slice(0, n).join("/")) {
+      return parts.slice(n).join("/");
+    }
+  }
+  return parts.join("/");
+}
+
+function pointerReleaseUrl(base: string, releasePrefix: string): string {
+  const rest = relativePrefix(base, releasePrefix);
+  return rest ? `${base}/${rest}` : base;
+}
+
 export async function importRelease(
   from: string,
   outputDir: string,
@@ -120,8 +180,12 @@ export async function importRelease(
     }
   } else {
     const base = source.location.replace(/\/$/, "");
-    const res = await guardedFetch(`${base}/release.json`, guard);
-    releaseBody = res.body;
+    const resolved = await resolveRemoteRelease(
+      base,
+      async (url) => (await guardedFetch(url, guard)).body,
+    );
+    releaseBody = resolved.body;
+    releasePrefix = resolved.prefix;
   }
   if (!validateRelease(JSON.parse(releaseBody.toString("utf8")))) {
     throw commandError("validation", "fork: release.json failed schema validation");
@@ -145,7 +209,7 @@ export async function importRelease(
       );
     } else {
       const base = source.location.replace(/\/$/, "");
-      const res = await guardedFetch(`${base}/${file.path}`, {
+      const res = await guardedFetch(`${base}/${remotePath(releasePrefix, file.path)}`, {
         ...guard,
         maxBytes: DEFAULT_LIMITS.totalBytes,
       });
@@ -319,11 +383,16 @@ async function readReferenced(
     );
   }
   const base = source.location.replace(/\/$/, "");
-  const res = await guardedFetch(`${base}/${dataset.path}`, {
+  const res = await guardedFetch(`${base}/${remotePath(releasePrefix, dataset.path)}`, {
     ...guard,
     maxBytes: DEFAULT_LIMITS.totalBytes,
   });
   return res.body;
+}
+
+/** Release-relative path, under the pointer's prefix when we followed one. */
+function remotePath(releasePrefix: string | null, filePath: string): string {
+  return releasePrefix ? `${releasePrefix}/${filePath}` : filePath;
 }
 
 function datasetPaths(doc: { datasets?: { id: string }[] }): string {

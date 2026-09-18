@@ -1,3 +1,9 @@
+import { createHash } from "node:crypto";
+import { commandError } from "../../src/plan/errors.js";
+import {
+  isReleaseNotFound,
+  resolveRemoteRelease,
+} from "../../src/fork/importRelease.js";
 import { describe, expect, it } from "vitest";
 import fs from "node:fs";
 import os from "node:os";
@@ -228,4 +234,115 @@ describe("a referenced dataset round-trips", () => {
     expect(result.error?.code).toBe("policy_refused");
     expect(result.error?.message).toMatch(/checksum mismatch for referenced dataset/);
   }, 60_000);
+});
+
+describe("resolving a remote --from", () => {
+  const releaseBody = Buffer.from(JSON.stringify({ schema_version: 1, mode: "results_only" }));
+  const checksum = createHash("sha256").update(releaseBody).digest("hex");
+  const notFound = () =>
+    commandError("transient_dependency", "fork fetch: HTTP 404", { retryable: true });
+
+  it("takes a release directory directly, with no prefix", async () => {
+    const seen: string[] = [];
+    const got = await resolveRemoteRelease("https://x/rel", async (url) => {
+      seen.push(url);
+      return releaseBody;
+    });
+    expect(seen).toEqual(["https://x/rel/release.json"]);
+    expect(got).toEqual({ body: releaseBody, prefix: null });
+  });
+
+  it("falls back to latest.json when the release is not there", async () => {
+    const seen: string[] = [];
+    const got = await resolveRemoteRelease("https://x/root", async (url) => {
+      seen.push(url);
+      if (url.endsWith("/root/release.json")) throw notFound();
+      if (url.endsWith("/latest.json")) {
+        return Buffer.from(
+          JSON.stringify({ release_prefix: "releases/abc", release_json_checksum: checksum }),
+        );
+      }
+      return releaseBody;
+    });
+    expect(seen).toEqual([
+      "https://x/root/release.json",
+      "https://x/root/latest.json",
+      "https://x/root/releases/abc/release.json",
+    ]);
+    expect(got.prefix).toBe("releases/abc");
+  });
+
+  it("refuses a release that does not match the pointer checksum", async () => {
+    await expect(
+      resolveRemoteRelease("https://x/root", async (url) => {
+        if (url.endsWith("/root/release.json")) throw notFound();
+        if (url.endsWith("/latest.json")) {
+          return Buffer.from(
+            JSON.stringify({ release_prefix: "releases/abc", release_json_checksum: "deadbeef" }),
+          );
+        }
+        return releaseBody;
+      }),
+    ).rejects.toMatchObject({ code: "policy_refused" });
+  });
+
+  it("does not fall back on an error that is not a 404", async () => {
+    await expect(
+      resolveRemoteRelease("https://x/root", async () => {
+        throw commandError("transient_dependency", "fork fetch: HTTP 500", { retryable: true });
+      }),
+    ).rejects.toMatchObject({ message: "fork fetch: HTTP 500" });
+  });
+
+  // The 404 is only distinguishable by the message guardedFetch builds, so
+  // pin that coupling here: change the wording there and this fails.
+  it("recognises the 404 that guardedFetch actually throws", () => {
+    expect(isReleaseNotFound(notFound())).toBe(true);
+    expect(isReleaseNotFound(new Error("something else"))).toBe(false);
+  });
+});
+
+describe("latest.json prefixes are bucket-relative", () => {
+  const body = Buffer.from(JSON.stringify({ schema_version: 1 }));
+  const sum = createHash("sha256").update(body).digest("hex");
+  const notFound = () =>
+    commandError("transient_dependency", "fork fetch: HTTP 404", { retryable: true });
+
+  // What R2 actually serves: --from is the publish root, and the pointer
+  // repeats that prefix because it is written relative to the bucket.
+  it("does not repeat the prefix the publish root already carries", async () => {
+    const seen: string[] = [];
+    const got = await resolveRemoteRelease("https://h/fomo-rh", async (url) => {
+      seen.push(url);
+      if (url === "https://h/fomo-rh/release.json") throw notFound();
+      if (url === "https://h/fomo-rh/latest.json") {
+        return Buffer.from(
+          JSON.stringify({
+            release_prefix: "fomo-rh/releases/abc",
+            release_json_checksum: sum,
+          }),
+        );
+      }
+      return body;
+    });
+    expect(seen).toContain("https://h/fomo-rh/releases/abc/release.json");
+    expect(seen).not.toContain("https://h/fomo-rh/fomo-rh/releases/abc/release.json");
+    expect(got.prefix).toBe("releases/abc");
+  });
+
+  it("still works from the bucket root, where nothing is shared", async () => {
+    const seen: string[] = [];
+    const got = await resolveRemoteRelease("https://h", async (url) => {
+      seen.push(url);
+      if (url === "https://h/release.json") throw notFound();
+      if (url === "https://h/latest.json") {
+        return Buffer.from(
+          JSON.stringify({ release_prefix: "fomo-rh/releases/abc", release_json_checksum: sum }),
+        );
+      }
+      return body;
+    });
+    expect(seen).toContain("https://h/fomo-rh/releases/abc/release.json");
+    expect(got.prefix).toBe("fomo-rh/releases/abc");
+  });
 });
