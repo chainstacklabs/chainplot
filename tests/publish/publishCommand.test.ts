@@ -4,6 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { runCliJson } from "../helpers/run.js";
+import { startServe } from "../../src/publish/serve.js";
 
 const template = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
@@ -160,3 +161,55 @@ interface PublishEnvelope {
   reused: boolean;
   publish: { release_prefix: string };
 }
+
+// publish used to return a dashboard_url it had never fetched. A base URL that
+// serves a different bucket, a bucket with public access off, or an endpoint
+// that folded the bucket into every key all passed verifyFiles and then 404'd
+// for every reader — while the command reported ok: true.
+describe("publish verifies the public URL it hands back", () => {
+  it("fails when public_base_url does not serve what was uploaded", async () => {
+    const dir = setupProject();
+    expect((await runCliJson(["build", "--json"], dir)).ok).toBe(true);
+    // A "public origin" that serves an unrelated, empty directory.
+    const elsewhere = fs.mkdtempSync(path.join(os.tmpdir(), "chainplot-elsewhere-"));
+    const origin = startServe(elsewhere, 0);
+    await origin.ready;
+    try {
+      fs.appendFileSync(
+        path.join(dir, "chainplot.yaml"),
+        `    public_base_url: http://127.0.0.1:${origin.port}\n`,
+      );
+      const result = await runCliJson(["publish", "--json"], dir);
+      expect(result.ok).toBe(false);
+      expect(result.error?.code).toBe("transient_dependency");
+      expect(result.error?.message).toMatch(/HTTP 404/);
+      expect(result.error?.message).toMatch(/public_base_url/);
+      // The upload itself did happen; only the URL is wrong.
+      expect(fs.existsSync(path.join(dir, "published", "latest.json"))).toBe(true);
+    } finally {
+      origin.close();
+    }
+  }, 30_000);
+
+  it("succeeds, and the URL it returns answers 200", async () => {
+    const dir = setupProject();
+    expect((await runCliJson(["build", "--json"], dir)).ok).toBe(true);
+    const published = path.join(dir, "published");
+    fs.mkdirSync(published);
+    const origin = startServe(published, 0);
+    await origin.ready;
+    try {
+      fs.appendFileSync(
+        path.join(dir, "chainplot.yaml"),
+        `    public_base_url: http://127.0.0.1:${origin.port}\n`,
+      );
+      const result = await runCliJson(["publish", "--json"], dir);
+      expect(result.ok).toBe(true);
+      const { dashboard_url } = (result.data as { publish: { dashboard_url: string } }).publish;
+      expect(dashboard_url).toMatch(new RegExp(`^http://127\\.0\\.0\\.1:${origin.port}/releases/`));
+      expect((await fetch(dashboard_url)).status).toBe(200);
+    } finally {
+      origin.close();
+    }
+  }, 30_000);
+});

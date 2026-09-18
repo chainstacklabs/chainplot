@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { createHash } from "node:crypto";
-import { commandError } from "../plan/errors.js";
+import { commandError, errorMessage } from "../plan/errors.js";
 import type { PublishTarget as PublishTargetDoc } from "../project/types.js";
 import type {
   LatestPointer,
@@ -153,17 +153,47 @@ export async function publishRelease(
   const pointer: LatestPointer = latestPointer(prefix, body);
   await target.promoteLatest(pointer);
 
+  const publicBase = targetDoc.public_base_url?.replace(/\/$/, "") ?? null;
+  const dashboardUrl = publicBase ? `${publicBase}/${prefix}/index.html` : null;
+  // verifyFiles proved the bytes are in the bucket. It says nothing about the
+  // URL handed back: a base URL naming a different bucket, a bucket with public
+  // access off, or an endpoint that folded the bucket into every key all pass
+  // that check and then 404 for every reader. One GET settles it.
+  if (dashboardUrl !== null) {
+    await assertPublicUrlServes(dashboardUrl, targetDoc.id);
+  }
+
   return {
     target_id: targetDoc.id,
     release_prefix: prefix,
-    latest_url: targetDoc.public_base_url
-      ? `${targetDoc.public_base_url.replace(/\/$/, "")}/${base}latest.json`
-      : null,
-    dashboard_url: targetDoc.public_base_url
-      ? `${targetDoc.public_base_url.replace(/\/$/, "")}/${prefix}/index.html`
-      : null,
+    latest_url: publicBase ? `${publicBase}/${base}latest.json` : null,
+    dashboard_url: dashboardUrl,
     files_uploaded: files.length + referenced.length,
     datasets_referenced: referenced.map((r) => r.path),
     promoted: true,
   };
+}
+
+const PUBLIC_CHECK_TIMEOUT_MS = 15_000;
+
+async function assertPublicUrlServes(url: string, targetId: string): Promise<void> {
+  let outcome: string;
+  try {
+    const response = await fetch(url, {
+      signal: AbortSignal.timeout(PUBLIC_CHECK_TIMEOUT_MS),
+    });
+    await response.body?.cancel();
+    if (response.status === 200) return;
+    outcome = `HTTP ${response.status}`;
+  } catch (err) {
+    outcome = errorMessage(err);
+  }
+  throw commandError(
+    "transient_dependency",
+    `uploaded and promoted, but ${url} answered ${outcome} rather than 200. ` +
+      `The files are in the bucket; the public URL does not serve them. Check that ` +
+      `public_base_url is this bucket's public origin, that the bucket allows ` +
+      `public reads, and that CHAINPLOT_S3_ENDPOINT carries no path.`,
+    { resource_id: targetId, retryable: true, suggested_next: "publish" },
+  );
 }
