@@ -39,6 +39,10 @@ is the container's own loopback, which nothing outside can reach.
 and nothing else. A release is refused unless the whole pinned block range is
 proven complete.
 
+Everything the container writes into this directory — `.chainplot/`, `dist/` —
+is owned by you, not by root: the CLI in the container runs as the owner of
+the project directory.
+
 ## Files
 
 | File | Purpose |

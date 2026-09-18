@@ -86,6 +86,18 @@ jobs:
           docker compose exec -T producer chainplot capabilities --json
           docker compose exec -T producer chainplot validate --json
 
+      # The container writes into the bind-mounted project as its owner, not as
+      # root, so a build run inside it leaves files the host user can read and
+      # delete without sudo. The fixture template builds offline.
+      - name: Files the container writes belong to the host user
+        working-directory: ${{ runner.temp }}/proj
+        run: |
+          docker compose exec -T producer chainplot init \
+            --template fixture-transfers --output /workspace/fx --json
+          docker compose exec -T -w /workspace/fx producer chainplot build --json
+          test -O fx/dist/releases/local/release.json
+          rm -rf fx
+
       - name: Tear down
         if: always()
         working-directory: ${{ runner.temp }}/proj
