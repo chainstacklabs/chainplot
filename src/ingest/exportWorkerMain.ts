@@ -1,6 +1,12 @@
 import fs from "node:fs";
 import { DuckDBInstance } from "@duckdb/node-api";
-import { buildExportSql, type ExportRequest } from "./exporter.js";
+import {
+  assertUniqueCounts,
+  buildExportSql,
+  readCounts,
+  readRowCount,
+  type ExportRequest,
+} from "./exporter.js";
 
 async function readRequest(): Promise<ExportRequest> {
   let buf = "";
@@ -29,25 +35,9 @@ async function execute(req: ExportRequest): Promise<number> {
       for (let i = 0; i < statements.length; i++) {
         const sql = statements[i];
         if (i === 3) {
-          const reader = await conn.runAndReadAll(sql);
-          const rows = reader.getRowsJson() as unknown as {
-            total: bigint | number;
-            distinct_keys: bigint | number;
-          }[];
-          const total = Number(rows[0]?.total ?? 0);
-          const distinctKeys = Number(rows[0]?.distinct_keys ?? 0);
-          if (total !== distinctKeys) {
-            throw new Error(
-              JSON.stringify({
-                code: "source_inconsistent",
-                message: `duplicate physical keys: total=${total} distinct=${distinctKeys}`,
-              }),
-            );
-          }
+          assertUniqueCounts(readCounts(await conn.runAndReadAll(sql)));
         } else if (i === statements.length - 1) {
-          const reader = await conn.runAndReadAll(sql);
-          const rows = reader.getRowsJson() as unknown as { n: bigint | number }[];
-          return Number(rows[0]?.n ?? 0);
+          return readRowCount(await conn.runAndReadAll(sql));
         } else {
           await conn.run(sql);
         }

@@ -30,6 +30,62 @@ export function buildExportSql(req: ExportRequest): string {
   ].join("\n");
 }
 
+/** The shape `runAndReadAll` gives back; only the part we read from. */
+interface RowReader {
+  getRowObjectsJson(): unknown[];
+}
+
+export interface UniquenessCounts {
+  total: number;
+  distinctKeys: number;
+}
+
+/**
+ * DuckDB has two readers and they are not interchangeable: `getRowsJson()`
+ * returns positional arrays, `getRowObjectsJson()` returns column-keyed
+ * objects. Reading the first as if it were the second yields `undefined` for
+ * every column. Coercing that to 0 is what left the gate below comparing 0
+ * to 0, so a missing column is an error here rather than a default.
+ */
+function readCount(row: Record<string, unknown> | undefined, column: string): number {
+  const value = row?.[column];
+  if (value === undefined || value === null) {
+    throw new Error(`export: expected a ${column} count column, got none`);
+  }
+  return Number(value);
+}
+
+function firstRow(reader: RowReader): Record<string, unknown> | undefined {
+  return reader.getRowObjectsJson()[0] as Record<string, unknown> | undefined;
+}
+
+export function readCounts(reader: RowReader): UniquenessCounts {
+  const row = firstRow(reader);
+  return {
+    total: readCount(row, "total"),
+    distinctKeys: readCount(row, "distinct_keys"),
+  };
+}
+
+export function readRowCount(reader: RowReader): number {
+  return readCount(firstRow(reader), "n");
+}
+
+/**
+ * Refuses a source that holds the same physical key twice — what a replayed
+ * or reorged range leaves behind. Without it every aggregate downstream is
+ * silently inflated.
+ */
+export function assertUniqueCounts(counts: UniquenessCounts): void {
+  if (counts.total === counts.distinctKeys) return;
+  throw new Error(
+    JSON.stringify({
+      code: "source_inconsistent",
+      message: `duplicate physical keys: total=${counts.total} distinct=${counts.distinctKeys}`,
+    }),
+  );
+}
+
 export function buildUniquenessSql(
   networkName: string,
   contractName: string,

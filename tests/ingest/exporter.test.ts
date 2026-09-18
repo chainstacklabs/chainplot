@@ -1,7 +1,11 @@
 import { describe, expect, it } from "vitest";
+import { DuckDBInstance } from "@duckdb/node-api";
 import {
+  assertUniqueCounts,
   buildExportSql,
   buildUniquenessSql,
+  readCounts,
+  readRowCount,
 } from "../../src/ingest/exporter.js";
 
 const req = {
@@ -51,5 +55,67 @@ describe("exporter SQL", () => {
 
   it("is deterministic", () => {
     expect(buildExportSql(req)).toBe(sql);
+  });
+});
+
+describe("reading DuckDB results", () => {
+  // `getRowsJson()` returns positional arrays. Reading it as objects yields
+  // undefined for every column, which used to be coerced to 0 — leaving the
+  // uniqueness gate below comparing 0 to 0, so it could never fire.
+  async function query(sql: string) {
+    const instance = await DuckDBInstance.create(":memory:");
+    const conn = await instance.connect();
+    return { reader: await conn.runAndReadAll(sql), conn, instance };
+  }
+
+  it("reads the uniqueness counts by column name", async () => {
+    const { reader } = await query(
+      "SELECT 42::bigint AS total, 7::bigint AS distinct_keys",
+    );
+    expect(readCounts(reader)).toEqual({ total: 42, distinctKeys: 7 });
+  });
+
+  it("reads the exported row count by column name", async () => {
+    const { reader } = await query("SELECT 20618::bigint AS n");
+    expect(readRowCount(reader)).toBe(20618);
+  });
+
+  it("refuses a missing column rather than calling it zero", async () => {
+    const { reader } = await query("SELECT 1 AS something_else");
+    expect(() => readRowCount(reader)).toThrow(/count/i);
+  });
+});
+
+describe("the uniqueness gate", () => {
+  it("passes when every physical key is distinct", () => {
+    expect(() => assertUniqueCounts({ total: 20618, distinctKeys: 20618 })).not.toThrow();
+  });
+
+  it("fires when a physical key is duplicated", () => {
+    expect(() => assertUniqueCounts({ total: 3, distinctKeys: 2 })).toThrow(
+      /source_inconsistent/,
+    );
+  });
+
+  it("fires on a table that actually holds a duplicated row", async () => {
+    const instance = await DuckDBInstance.create(":memory:");
+    const conn = await instance.connect();
+    await conn.run("ATTACH ':memory:' AS pg");
+    await conn.run("CREATE SCHEMA pg.chainplot_chainplot_1_usdc");
+    await conn.run(
+      "CREATE TABLE pg.chainplot_chainplot_1_usdc.transfer " +
+        "(contract_address VARCHAR, block_number BIGINT, tx_hash VARCHAR, log_index BIGINT)",
+    );
+    // Same (address, block, tx, log_index) twice: what a replayed range leaves behind.
+    await conn.run(
+      "INSERT INTO pg.chainplot_chainplot_1_usdc.transfer VALUES " +
+        "('0xa', 1, '0xb', 0), ('0xa', 1, '0xb', 0), ('0xa', 2, '0xc', 0)",
+    );
+    const reader = await conn.runAndReadAll(
+      buildUniquenessSql("chainplot_1", "usdc", "Transfer"),
+    );
+    const counts = readCounts(reader);
+    expect(counts).toEqual({ total: 3, distinctKeys: 2 });
+    expect(() => assertUniqueCounts(counts)).toThrow(/duplicate physical keys/);
   });
 });
