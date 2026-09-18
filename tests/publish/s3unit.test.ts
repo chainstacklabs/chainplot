@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { createHash } from "node:crypto";
-import { S3Target, type S3Ops } from "../../src/publish/s3.js";
+import { S3Target, s3EnvFromProcess, type S3Ops } from "../../src/publish/s3.js";
 
 interface Stored {
   body: string | Uint8Array;
@@ -121,3 +121,44 @@ import { latestPointer } from "../../src/publish/latestPointer.js";
 function latestPointerOf(prefix: string, body: string) {
   return latestPointer(prefix, body);
 }
+
+// R2's console shows the bucket next to the account URL, and a path pasted
+// into CHAINPLOT_S3_ENDPOINT is sent as the bucket by a path-style client:
+// every key lands one level too deep, publish reports success, the public
+// URL serves nothing.
+describe("s3EnvFromProcess", () => {
+  const base = {
+    CHAINPLOT_S3_BUCKET: "b",
+    AWS_ACCESS_KEY_ID: "a",
+    AWS_SECRET_ACCESS_KEY: "s",
+  };
+
+  it("is null while any variable is missing", () => {
+    expect(s3EnvFromProcess({ ...base })).toBeNull();
+  });
+
+  it("accepts an origin, with or without the trailing slash", () => {
+    const endpoint = "https://acct.r2.cloudflarestorage.com";
+    expect(s3EnvFromProcess({ ...base, CHAINPLOT_S3_ENDPOINT: endpoint })?.endpoint).toBe(endpoint);
+    expect(s3EnvFromProcess({ ...base, CHAINPLOT_S3_ENDPOINT: `${endpoint}/` })?.endpoint).toBe(endpoint);
+  });
+
+  it("refuses an endpoint that carries a path, naming the fix", () => {
+    expect(() =>
+      s3EnvFromProcess({ ...base, CHAINPLOT_S3_ENDPOINT: "https://acct.r2.cloudflarestorage.com/b" }),
+    ).toThrow(/no path/);
+    try {
+      s3EnvFromProcess({ ...base, CHAINPLOT_S3_ENDPOINT: "https://acct.r2.cloudflarestorage.com/b" });
+    } catch (err) {
+      expect((err as { suggested_next: string }).suggested_next).toBe(
+        "set CHAINPLOT_S3_ENDPOINT=https://acct.r2.cloudflarestorage.com",
+      );
+    }
+  });
+
+  it("refuses something that is not a URL", () => {
+    expect(() => s3EnvFromProcess({ ...base, CHAINPLOT_S3_ENDPOINT: "acct.r2.dev" })).toThrow(
+      /not a URL/,
+    );
+  });
+});

@@ -31,8 +31,29 @@ export function s3EnvFromProcess(
   ) {
     return null;
   }
+  // The client is path-style: the bucket becomes the first path segment of
+  // every request. An endpoint that already carries a path (R2's console
+  // shows `…/<bucket>` next to the account URL) makes the real bucket a
+  // prefix on every key — uploads land one level too deep, publish reports
+  // success, and the public URL serves nothing.
+  let url: URL;
+  try {
+    url = new URL(env.CHAINPLOT_S3_ENDPOINT);
+  } catch {
+    throw commandError("validation", `CHAINPLOT_S3_ENDPOINT is not a URL: ${env.CHAINPLOT_S3_ENDPOINT}`, {
+      pointer: "/env/CHAINPLOT_S3_ENDPOINT",
+    });
+  }
+  if (url.pathname !== "/" || url.search !== "" || url.hash !== "") {
+    throw commandError(
+      "validation",
+      `CHAINPLOT_S3_ENDPOINT must be an origin with no path: got ${env.CHAINPLOT_S3_ENDPOINT}. ` +
+        `The bucket goes in CHAINPLOT_S3_BUCKET; a path here would be sent as the bucket.`,
+      { pointer: "/env/CHAINPLOT_S3_ENDPOINT", suggested_next: `set CHAINPLOT_S3_ENDPOINT=${url.origin}` },
+    );
+  }
   return {
-    endpoint: env.CHAINPLOT_S3_ENDPOINT,
+    endpoint: url.origin,
     bucket: env.CHAINPLOT_S3_BUCKET,
     accessKeyId: env.AWS_ACCESS_KEY_ID,
     secretAccessKey: env.AWS_SECRET_ACCESS_KEY,
@@ -223,6 +244,10 @@ export class S3Target implements PublishTarget {
     }
   }
 
+  async releaseExists(prefix: string): Promise<boolean> {
+    return (await this.ops.head(`${prefix}/release.json`)) !== null;
+  }
+
   async readLatest(): Promise<LatestPointer | null> {
     const obj = await this.ops.get(this.latestKey());
     if (obj === null) return null;
@@ -244,10 +269,6 @@ export class S3Target implements PublishTarget {
           ifNoneMatch: "*",
           contentType: "application/json",
         });
-  async releaseExists(prefix: string): Promise<boolean> {
-    return (await this.ops.head(`${prefix}/release.json`)) !== null;
-  }
-
       }
     } catch (err) {
       if ((err as { code?: string }).code === "policy_refused") throw err;
