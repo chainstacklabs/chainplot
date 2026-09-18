@@ -213,3 +213,33 @@ describe("publish verifies the public URL it hands back", () => {
     }
   }, 30_000);
 });
+
+// The journal replayed a stored success for as long as it lived. Emptying the
+// bucket and running publish again reported "N files uploaded" with nothing
+// uploaded; recovery was deleting the journal entry by hand.
+describe("publish reuse checks the target first", () => {
+  it("re-uploads when the published release has gone missing", async () => {
+    const dir = setupProject();
+    expect((await runCliJson(["build", "--json"], dir)).ok).toBe(true);
+    const first = await runCliJson(["publish", "--json"], dir);
+    expect(first.ok).toBe(true);
+    expect((first.data as PublishEnvelope).reused).toBe(false);
+
+    // Same release, target intact: replaying the journal is correct.
+    const replay = await runCliJson(["publish", "--json"], dir);
+    expect((replay.data as PublishEnvelope).reused).toBe(true);
+
+    // Target emptied: the journal still says succeeded, but nothing is there.
+    fs.rmSync(path.join(dir, "published"), { recursive: true, force: true });
+    const again = await runCliJson(["publish", "--json"], dir);
+    expect(again.ok).toBe(true);
+    expect((again.data as PublishEnvelope).reused).toBe(false);
+    expect(fs.existsSync(path.join(dir, "published", "latest.json"))).toBe(true);
+    expect(
+      fs.existsSync(
+        path.join(dir, "published", (again.data as PublishEnvelope).publish.release_prefix, "release.json"),
+      ),
+    ).toBe(true);
+  }, 30_000);
+});
+

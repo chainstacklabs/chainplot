@@ -24,7 +24,11 @@ import {
   writeJournalStatus,
 } from "../runtime/journal.js";
 import { acquireLocalLock } from "../runtime/locks.js";
-import { publishRelease, type PublishResult } from "../publish/publishRelease.js";
+import {
+  publishRelease,
+  publishedReleaseIntact,
+  type PublishResult,
+} from "../publish/publishRelease.js";
 import { commandError, errorMessage } from "./errors.js";
 import { projectDigest, type PlanDocument } from "./generate.js";
 
@@ -105,16 +109,28 @@ export async function applyPlan(opts: ApplyOptions): Promise<ApplyOutcome> {
   }
   const existingStatus = readJournalStatus(opts.cwd, key);
   if (existingStatus?.status === "succeeded") {
-    return {
-      plan_id: plan.plan_id,
-      idempotency_key: key,
-      status: "succeeded",
-      reused: true,
-      release_dir:
-        (existingStatus.result as { release_dir?: string } | undefined)?.release_dir ?? null,
-      publish:
-        (existingStatus.result as { publish?: PublishResult | null } | undefined)?.publish ?? null,
-    };
+    const previous = existingStatus.result as
+      | { release_dir?: string; publish?: PublishResult | null }
+      | undefined;
+    const published = previous?.publish ?? null;
+    // A journaled publish is worth replaying only while what it published is
+    // still there. Otherwise a bucket emptied since then gets "N files
+    // uploaded" with nothing uploaded, for as long as the journal lives.
+    if (published === null || (await publishStillThere(opts.cwd, published))) {
+      return {
+        plan_id: plan.plan_id,
+        idempotency_key: key,
+        status: "succeeded",
+        reused: true,
+        release_dir: previous?.release_dir ?? null,
+        publish: published,
+      };
+    }
+    appendCheckpoint(opts.cwd, key, {
+      stage: "reuse_declined",
+      release_prefix: published.release_prefix,
+      message: "published release no longer present at the target",
+    });
   }
   if (existingStatus?.status === "running") {
     throw commandError("policy_refused", `run ${key} is already running`, {
@@ -220,6 +236,14 @@ export async function applyPlan(opts: ApplyOptions): Promise<ApplyOutcome> {
   } finally {
     lock.release();
   }
+}
+
+async function publishStillThere(cwd: string, published: PublishResult): Promise<boolean> {
+  const targetDoc = (loadAndValidate(cwd).publish_targets ?? []).find(
+    (t) => t.id === published.target_id,
+  );
+  if (!targetDoc) return false;
+  return publishedReleaseIntact(cwd, targetDoc, published.release_prefix);
 }
 
 function loadAndValidate(cwd: string): ProjectDocument {

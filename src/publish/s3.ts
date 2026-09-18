@@ -244,6 +244,10 @@ export class S3Target implements PublishTarget {
           ifNoneMatch: "*",
           contentType: "application/json",
         });
+  async releaseExists(prefix: string): Promise<boolean> {
+    return (await this.ops.head(`${prefix}/release.json`)) !== null;
+  }
+
       }
     } catch (err) {
       if ((err as { code?: string }).code === "policy_refused") throw err;

@@ -34,6 +34,23 @@ export function resolveTarget(
   return new S3Target(env, undefined, targetDoc.prefix ?? "");
 }
 
+/**
+ * Is a release that was published earlier still where it was put?
+ *
+ * The run journal replays a successful publish rather than repeating it. That
+ * is only right while the published files exist: a bucket emptied since then
+ * would otherwise be reported as "uploaded" for as long as the journal lives.
+ */
+export async function publishedReleaseIntact(
+  projectDir: string,
+  targetDoc: PublishTargetDoc,
+  prefix: string,
+): Promise<boolean> {
+  const target = resolveTarget(targetDoc, projectDir);
+  if (!(await target.releaseExists(prefix))) return false;
+  return (await target.readLatest()) !== null;
+}
+
 function walkFiles(dir: string, base = dir): string[] {
   const out: string[] = [];
   for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {

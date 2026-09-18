@@ -36,4 +36,6 @@ export interface PublishTarget {
   ): Promise<void>;
   readLatest(): Promise<LatestPointer | null>;
   promoteLatest(pointer: LatestPointer): Promise<void>;
+  /** Whether a release published under `prefix` is still there. */
+  releaseExists(prefix: string): Promise<boolean>;
 }

@@ -58,6 +58,10 @@ export class DirectoryTarget implements PublishTarget {
     }
   }
 
+  async releaseExists(prefix: string): Promise<boolean> {
+    return fs.existsSync(path.join(this.rootDir, prefix, "release.json"));
+  }
+
   async readLatest(): Promise<LatestPointer | null> {
     const file = this.latestPath();
     if (!fs.existsSync(file)) return null;
