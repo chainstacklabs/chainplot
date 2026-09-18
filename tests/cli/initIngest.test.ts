@@ -51,6 +51,18 @@ describe("ingest-transfers template", () => {
     expect(envExample).toContain("RPC_URL=");
     expect(envExample).not.toMatch(/https?:\/\/(?!127\.0\.0\.1|postgres)/);
 
+    // The scaffold tells the user to create .env with their RPC endpoint;
+    // nothing else would stop that file being committed with the project.
+    const gitignore = fs.readFileSync(path.join(out, ".gitignore"), "utf8");
+    for (const entry of [".env", ".chainplot/", "dist/"]) {
+      expect(gitignore.split("\n")).toContain(entry);
+    }
+    // The project is named after its directory, not after the template.
+    expect((init.data as { id: string }).id).toBe("my-analytics");
+    expect(fs.readFileSync(path.join(out, "chainplot.yaml"), "utf8")).toMatch(
+      /^id: "my-analytics"$/m,
+    );
+
     const validated = await runCliJson(["validate", "--json"], out);
     expect(validated.ok).toBe(true);
   });

@@ -72,5 +72,38 @@ export function initTemplate(id: string, outputDir: string): CommandResult {
     return validation(message);
   }
 
-  return okResult("init", { template: id, output: dest });
+  // A scaffold is a directory someone will `git init` in. The .env it asks
+  // them to create holds the RPC endpoint, and without this file nothing
+  // stops it being committed alongside the run journal and the built release.
+  fs.writeFileSync(path.join(dest, ".gitignore"), SCAFFOLD_GITIGNORE);
+
+  // The template's own id is a placeholder. A project is named after the
+  // directory it was created in, the way `git init` or `npm init` would.
+  const projectId = projectIdFrom(path.basename(dest)) ?? id;
+  const yamlPath = path.join(dest, "chainplot.yaml");
+  const yaml = fs.readFileSync(yamlPath, "utf8");
+  const idLines = yaml.match(/^id: .*$/gm) ?? [];
+  if (idLines.length !== 1) {
+    return validation(`template ${id} has ${idLines.length} top-level id lines; expected 1`);
+  }
+  fs.writeFileSync(yamlPath, yaml.replace(/^id: .*$/m, `id: ${JSON.stringify(projectId)}`));
+
+  return okResult("init", { template: id, output: dest, id: projectId });
+}
+
+const SCAFFOLD_GITIGNORE = `# Written by chainplot init.
+# The RPC endpoint lives here; never commit it.
+.env
+# Run journal, locks and exported snapshots; rebuilt by plan/apply.
+.chainplot/
+# Built release; rebuilt by build.
+dist/
+`;
+
+/** A directory name reduced to the characters a project id may carry. */
+export function projectIdFrom(dirName: string): string | null {
+  const cleaned = dirName
+    .replace(/[^A-Za-z0-9._-]+/g, "-")
+    .replace(/^[-.]+|[-.]+$/g, "");
+  return cleaned.length > 0 ? cleaned : null;
 }
