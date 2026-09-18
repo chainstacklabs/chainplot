@@ -39,8 +39,28 @@ async function dockerAvailable(): Promise<boolean> {
   }
 }
 
+// The scaffolded project pins mainnet blocks. An RPC for any other chain
+// would fail the suite for a reason that has nothing to do with the code, so
+// the gate asks the endpoint which chain it serves.
+async function servesMainnet(url: string | undefined): Promise<boolean> {
+  if (!url) return false;
+  try {
+    const response = await fetch(url, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "eth_chainId", params: [] }),
+      signal: AbortSignal.timeout(10_000),
+    });
+    const body = (await response.json()) as { result?: string };
+    return body.result === "0x1";
+  } catch {
+    return false;
+  }
+}
+
 const hasDocker = await dockerAvailable();
-const d = rpcUrl && hasDocker ? it : it.skip;
+const onMainnet = await servesMainnet(rpcUrl);
+const d = onMainnet && hasDocker ? it : it.skip;
 
 async function compose(cwd: string, args: string[], timeout = 900_000) {
   return exec("docker", ["compose", ...args], {
