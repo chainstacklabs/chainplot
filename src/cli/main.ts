@@ -22,6 +22,12 @@ try {
     suggested_next: null,
   });
 }
+// `--help` without --json is a person asking; give them the text, not an
+// envelope around it.
+if (result.ok && result.command === "help" && !process.argv.includes("--json")) {
+  process.stdout.write((result.data as { text: string }).text);
+  process.exit(0);
+}
 process.stdout.write(JSON.stringify(result) + "\n");
 // `serve` is long-running: its result (with the URL) is printed once and the
 // process stays alive until SIGINT/SIGTERM (handled inside the command).

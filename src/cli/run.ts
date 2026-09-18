@@ -1,6 +1,6 @@
 import path from "node:path";
 import { Command, CommanderError } from "commander";
-import { failResult, type CommandResult } from "./envelope.js";
+import { failResult, type CommandResult, okResult } from "./envelope.js";
 import { capabilities } from "./commands/capabilities.js";
 import { datasetDescribe } from "./commands/describe.js";
 import { initTemplate } from "./commands/init.js";
@@ -46,12 +46,16 @@ export async function runCli(
 ): Promise<CommandResult> {
   const json = argv.includes("--json");
   const cmdArgv = argv.filter((arg) => arg !== "--json");
+  // Asking what the commands are is not running one, so it needs no --json.
+  // The text comes back in the envelope either way; main.ts prints it plain
+  // when --json was not given.
+  const wantsHelp = argv.includes("--help") || argv.includes("-h");
 
   // Gate before dispatch, not after. Checking this once the action has run
   // means a refused `build` still writes a release and a refused `publish`
   // still uploads — a caller that trusts `ok: false` and retries would then
   // double the side effects.
-  if (!json) {
+  if (!json && !wantsHelp) {
     return validationError(
       cmdArgv.find((arg) => !arg.startsWith("-")) ?? "",
       "--json is required",
@@ -61,6 +65,7 @@ export async function runCli(
 
   let result: CommandResult | undefined;
   let commandName = "";
+  let helpText = "";
 
   const program = new Command();
   program
@@ -69,7 +74,9 @@ export async function runCli(
     .allowExcessArguments(false)
     .showHelpAfterError(false)
     .configureOutput({
-      writeOut: () => {},
+      writeOut: (text) => {
+        helpText += text;
+      },
       writeErr: () => {},
     });
 
@@ -194,13 +201,14 @@ export async function runCli(
     .description("execute a plan written by `plan`")
     .requiredOption("--plan <ref>", "plan path or plan id")
     .option("--idempotency-key <key>", "idempotency key (default: plan digest)")
-    .action(async (options: { plan: string; idempotencyKey?: string }) => {
+    .option("--jsonl", "stream progress events as JSON lines before the result")
+    .action(async (options: { plan: string; idempotencyKey?: string; jsonl?: boolean }) => {
       commandName = "apply";
       result = await applyCommand(
         opts.cwd,
         options.plan,
         options.idempotencyKey,
-        argv.includes("--jsonl"),
+        options.jsonl ?? false,
       );
     });
 
@@ -208,12 +216,13 @@ export async function runCli(
     .command("refresh")
     .description("resume indexing, rebuild, optionally publish")
     .option("--publish-target <id>", "publish target id (must exist in chainplot.yaml)")
-    .action(async (options: { publishTarget?: string }) => {
+    .option("--jsonl", "stream progress events as JSON lines before the result")
+    .action(async (options: { publishTarget?: string; jsonl?: boolean }) => {
       commandName = "refresh";
       result = await refreshCommand(
         opts.cwd,
         options.publishTarget,
-        argv.includes("--jsonl"),
+        options.jsonl ?? false,
       );
     });
 
@@ -312,11 +321,8 @@ export async function runCli(
         err.code === "commander.helpDisplayed" ||
         err.code === "commander.help"
       ) {
-        return validationError(
-          cmd,
-          cmd ? "help is not available in JSON mode" : "a command is required",
-          cmd ? null : "/command",
-        );
+        if (wantsHelp) return okResult("help", { text: helpText });
+        return validationError(cmd, "a command is required", "/command");
       }
       if (err.code === "commander.unknownCommand") {
         return validationError(cmd, err.message, "/command");

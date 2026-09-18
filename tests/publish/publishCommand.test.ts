@@ -243,3 +243,16 @@ describe("publish reuse checks the target first", () => {
   }, 30_000);
 });
 
+// --jsonl was read straight from argv and never registered, so commander
+// rejected it as an unknown option: progress streaming was unreachable.
+describe("apply --jsonl", () => {
+  it("is accepted and still returns the result envelope", async () => {
+    const dir = setupProject();
+    expect((await runCliJson(["build", "--json"], dir)).ok).toBe(true);
+    const plan = await runCliJson(["plan", "--intent", "publish", "--json"], dir);
+    const planPath = (plan.data as { plan_path: string }).plan_path;
+    const applied = await runCliJson(["apply", "--plan", planPath, "--jsonl", "--json"], dir);
+    expect(applied.ok).toBe(true);
+    expect((applied.data as PublishEnvelope).publish.release_prefix).toMatch(/^releases\//);
+  }, 30_000);
+});
