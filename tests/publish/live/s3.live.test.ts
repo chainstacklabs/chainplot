@@ -7,7 +7,7 @@ import { runCliJson } from "../../helpers/run.js";
 import {
   S3Target,
   makeS3Ops,
-  s3EnvFromProcess,
+  s3EnvIfUsable,
   LATEST_KEY,
 } from "../../../src/publish/s3.js";
 import { latestPointer } from "../../../src/publish/latestPointer.js";
@@ -15,7 +15,7 @@ import { latestPointer } from "../../../src/publish/latestPointer.js";
 // Live-gated: needs CHAINPLOT_S3_ENDPOINT, CHAINPLOT_S3_BUCKET,
 // AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY (optionally CHAINPLOT_S3_REGION).
 // Skips when absent. Never commit endpoint URLs or keys.
-const env = s3EnvFromProcess();
+const env = s3EnvIfUsable();
 const d = env ? it : it.skip;
 
 describe("S3 conditional-write probe (M0 open question)", () => {

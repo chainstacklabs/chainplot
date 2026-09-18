@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 import { createHash } from "node:crypto";
-import { S3Target, s3EnvFromProcess, type S3Ops } from "../../src/publish/s3.js";
+import {
+  S3Target,
+  s3EnvFromProcess,
+  s3EnvIfUsable,
+  type S3Ops,
+} from "../../src/publish/s3.js";
 
 interface Stored {
   body: string | Uint8Array;
@@ -160,5 +165,32 @@ describe("s3EnvFromProcess", () => {
     expect(() => s3EnvFromProcess({ ...base, CHAINPLOT_S3_ENDPOINT: "acct.r2.dev" })).toThrow(
       /not a URL/,
     );
+  });
+});
+
+// A live suite's gate asks "can these tests run here?". A missing variable and
+// a malformed one are both no — but one returned null and the other threw, and
+// the throw happened at module scope, so the file failed collection with no
+// test name attached. Same shape as gating the live e2e on RPC_URL being set.
+describe("s3EnvIfUsable, the live-test gate", () => {
+  const base = {
+    CHAINPLOT_S3_BUCKET: "b",
+    AWS_ACCESS_KEY_ID: "a",
+    AWS_SECRET_ACCESS_KEY: "s",
+  };
+
+  it("is null when nothing is configured", () => {
+    expect(s3EnvIfUsable({ ...base })).toBeNull();
+  });
+
+  it("is null when the endpoint is malformed, where the strict reader throws", () => {
+    const env = { ...base, CHAINPLOT_S3_ENDPOINT: "https://acct.r2.cloudflarestorage.com/b" };
+    expect(() => s3EnvFromProcess(env)).toThrow();
+    expect(s3EnvIfUsable(env)).toBeNull();
+  });
+
+  it("still hands back a usable environment", () => {
+    const endpoint = "https://acct.r2.cloudflarestorage.com";
+    expect(s3EnvIfUsable({ ...base, CHAINPLOT_S3_ENDPOINT: endpoint })?.endpoint).toBe(endpoint);
   });
 });

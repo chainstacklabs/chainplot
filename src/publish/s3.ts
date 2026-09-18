@@ -283,3 +283,20 @@ export class S3Target implements PublishTarget {
     }
   }
 }
+
+/**
+ * The gate a live-only suite should ask: can these tests run here? A missing
+ * variable and a malformed one are both no. `s3EnvFromProcess` distinguishes
+ * them — right for a publish, which should say exactly what is wrong — but a
+ * gate evaluated at module scope turns the second into a collection failure
+ * with no test name on it, and CI never sees it because CI has no S3 env.
+ */
+export function s3EnvIfUsable(
+  env: NodeJS.ProcessEnv = process.env,
+): ReturnType<typeof s3EnvFromProcess> {
+  try {
+    return s3EnvFromProcess(env);
+  } catch {
+    return null;
+  }
+}
