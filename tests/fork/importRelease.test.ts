@@ -63,6 +63,10 @@ describe("fork", () => {
     // rather than inheriting the producer's.
     expect(release.mode).toBe("results_only");
     expect(release.queries).toContain("raw_amounts");
+    // The author's bucket is theirs: a fork must not aim `publish` at it.
+    const forkedYaml = fs.readFileSync(path.join(out, "chainplot.yaml"), "utf8");
+    expect(forkedYaml).not.toMatch(/publish_targets/);
+    expect(result.warnings).toEqual([expect.stringMatching(/publish_targets dropped/)]);
     const results = JSON.parse(
       fs.readFileSync(
         path.join(out, "dist/releases/local/results/raw_amounts.json"),
@@ -144,7 +148,9 @@ describe("forking a release without its dataset", () => {
       parent,
     );
     expect(result.ok).toBe(true);
-    expect(result.warnings).toEqual([]);
+    // The only warning is the one every fork of this fixture gets: its
+    // publish target was the producer's and did not come across.
+    expect(result.warnings).toEqual([expect.stringMatching(/publish_targets dropped/)]);
   });
 });
 
@@ -186,8 +192,8 @@ describe("a referenced dataset round-trips", () => {
     expect((forked.data as { datasets_referenced: string[] }).datasets_referenced).toEqual([
       "datasets/amounts/tables/amounts.parquet",
     ]);
-    // Nothing to warn about: the data did come across.
-    expect(forked.warnings).toEqual([]);
+    // The data did come across, so the only warning is the dropped target.
+    expect(forked.warnings).toEqual([expect.stringMatching(/publish_targets dropped/)]);
 
     const built = await runCliJson(["build", "--json"], out);
     expect(built.ok).toBe(true);

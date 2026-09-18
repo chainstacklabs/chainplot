@@ -213,7 +213,9 @@ export async function importRelease(
     datasets?: { id: string; snapshot: string }[];
     chain_sources?: unknown;
     event_sources?: unknown;
+    publish_targets?: unknown;
   };
+  const warnings: string[] = [];
   for (const dataset of projectDoc.datasets ?? []) {
     const basename = path.basename(dataset.snapshot);
     dataset.snapshot = `datasets/${dataset.id}/tables/${basename}`;
@@ -229,6 +231,16 @@ export async function importRelease(
   // forked project is dataset-only. Expanding history is a new ingest project.
   delete projectDoc.chain_sources;
   delete projectDoc.event_sources;
+  // The publish targets name the original author's bucket. No credentials
+  // come across, so nothing can be written there — but a fork that kept them
+  // would aim its first `publish` at a stranger's storage.
+  if (projectDoc.publish_targets !== undefined) {
+    delete projectDoc.publish_targets;
+    warnings.push(
+      "publish_targets dropped: they pointed at the original author's storage. " +
+        "Add your own publish_targets before running publish.",
+    );
+  }
   fs.writeFileSync(path.join(outDir, "chainplot.yaml"), stringifyYaml(projectDoc));
 
   // Recipe directories live at project root for the forked copy.
@@ -243,7 +255,6 @@ export async function importRelease(
   // no dataset, so the fork is real and useful yet cannot rebuild until it is
   // pointed at a snapshot. Saying so here beats a bare "missing snapshot file"
   // from a `build` the forker has no reason to expect to fail.
-  const warnings: string[] = [];
   if (release.mode === "results_only") {
     warnings.push(
       `release mode is ${release.mode}: the dataset is not part of it, so the ` +
