@@ -6,6 +6,7 @@ import {
   buildUniquenessSql,
   readCounts,
   readRowCount,
+  snapshotFileName,
 } from "../../src/ingest/exporter.js";
 
 const req = {
@@ -117,5 +118,21 @@ describe("the uniqueness gate", () => {
     const counts = readCounts(reader);
     expect(counts).toEqual({ total: 3, distinctKeys: 2 });
     expect(() => assertUniqueCounts(counts)).toThrow(/duplicate physical keys/);
+  });
+});
+
+// The snapshot is named the way rindexer names the table it came from, so a
+// `snapshot:` path follows from the event name by one rule, not two.
+describe("snapshotFileName", () => {
+  it("is unchanged for the single-word events every template uses", () => {
+    expect(snapshotFileName("usdc", "Transfer")).toBe("usdc_transfer.parquet");
+    expect(snapshotFileName("weth", "Withdrawal")).toBe("weth_withdrawal.parquet");
+  });
+
+  it("snake_cases a multi-word event exactly as the table is named", () => {
+    expect(snapshotFileName("steth", "TransferShares")).toBe("steth_transfer_shares.parquet");
+    expect(snapshotFileName("erc20dep", "RelayERC20Deposit")).toBe(
+      "erc_20dep_relay_erc_20_deposit.parquet",
+    );
   });
 });

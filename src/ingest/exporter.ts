@@ -3,6 +3,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { eventTableName } from "./rindexer/inspectCoverage.js";
+import { camelToSnake } from "./rindexer/naming.js";
 import type { BoundedJob } from "./adapter.js";
 
 export interface ExportRequest {
@@ -122,6 +123,17 @@ export interface ExportResult {
   rowCount: number;
 }
 
+/**
+ * The parquet a source/event pair exports to: `<contract>_<event>.parquet`,
+ * both parts snake_cased exactly as rindexer names the table it came from —
+ * `RelayERC20Deposit` exports to `…_relay_erc_20_deposit.parquet`. One rule
+ * for the table and the file, so a `snapshot:` path can be derived from the
+ * event name without a second convention to remember.
+ */
+export function snapshotFileName(contractName: string, event: string): string {
+  return `${camelToSnake(contractName)}_${camelToSnake(event)}.parquet`;
+}
+
 export async function exportEventTable(
   job: BoundedJob,
   outDir: string,
@@ -141,10 +153,7 @@ export async function exportEventTable(
     contractName: job.contractName,
     event: job.events[0],
     chainId: job.chainId,
-    // The file name is chainplot's own convention (documented in the
-    // templates' `snapshot:` paths); only the table it reads from follows
-    // rindexer's snake_case naming, via eventTableName.
-    outPath: path.join(outDir, `${job.contractName}_${job.events[0].toLowerCase()}.parquet`),
+    outPath: path.join(outDir, snapshotFileName(job.contractName, job.events[0])),
   };
   const { modulePath, execArgv } = workerLaunch();
   return await new Promise<ExportResult>((resolve, reject) => {

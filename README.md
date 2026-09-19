@@ -91,6 +91,7 @@ event_sources:
 
 datasets:
   - id: usdc
+    # apply writes <source id>_<event>.parquet, snake_cased like rindexer's tables
     snapshot: .chainplot/snapshots/usdc/usdc_transfer.parquet
 
 queries:

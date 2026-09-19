@@ -202,7 +202,7 @@ describe("live ingest end-to-end (M0 replay through the product)", () => {
             [
               "",
               "  - id: steth",
-              "    snapshot: .chainplot/snapshots/steth/steth_transfershares.parquet",
+              "    snapshot: .chainplot/snapshots/steth/steth_transfer_shares.parquet",
               "queries:",
               "",
             ].join("\n"),
@@ -249,7 +249,7 @@ describe("live ingest end-to-end (M0 replay through the product)", () => {
       expect(steth).toMatchObject({ end_block: 18600100, status: "complete_with_rows" });
       expect(steth.row_count).toBeGreaterThan(0);
       expect(
-        fs.existsSync(path.join(cwd, ".chainplot/snapshots/steth/steth_transfershares.parquet")),
+        fs.existsSync(path.join(cwd, ".chainplot/snapshots/steth/steth_transfer_shares.parquet")),
       ).toBe(true);
       const segment = coverage.sources[0].segments[0]!;
       expect(segment).toMatchObject({

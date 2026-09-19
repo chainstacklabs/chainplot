@@ -26,6 +26,9 @@ event_sources:
       block: 18600010
 datasets:
   - id: usdc
+    # Written by apply as .chainplot/snapshots/<source id>/<source id>_<event>.parquet,
+    # with both parts snake_cased the way rindexer names its tables:
+    # Transfer → transfer, RelayERC20Deposit → relay_erc_20_deposit.
     snapshot: .chainplot/snapshots/usdc/usdc_transfer.parquet
 queries:
   - id: transfer_count
