@@ -1,0 +1,33 @@
+format_version: 1
+id: fixture-follow-depth
+datasets:
+  - id: amounts
+    snapshot: snapshots/amounts.parquet
+queries:
+  - id: raw_amounts
+    file: queries/raw_amounts.sql
+    dataset: amounts
+dashboards:
+  - id: overview
+    title: Amounts
+    panels:
+      - query: raw_amounts
+        chart: table
+chain_sources:
+  - id: eth
+    chain_id: 1
+    rpc_secret: ETH_RPC
+    finality:
+      policy: confirmation_depth
+      depth: 12
+event_sources:
+  - id: transfers
+    chain: eth
+    addresses:
+      - "0x0000000000000000000000000000000000000001"
+    abi: abis/erc20.json
+    events:
+      - Transfer
+    start_block: 0
+    end:
+      mode: follow_finalized

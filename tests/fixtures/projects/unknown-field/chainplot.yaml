@@ -1,0 +1,17 @@
+format_version: 1
+id: fixture-transfers
+datasets:
+  - id: amounts
+    snapshot: snapshots/amounts.parquet
+queries:
+  - id: raw_amounts
+    file: queries/raw_amounts.sql
+    dataset: amounts
+    raw_amount_columns: [amount]
+dashboards:
+  - id: overview
+    title: Amounts
+    panels:
+      - query: raw_amounts
+        chart: table
+extra: true

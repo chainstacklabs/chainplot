@@ -1,0 +1,58 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://chainplot.dev/schema/coverage",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "chain_id", "sources"],
+  "properties": {
+    "schema_version": { "type": "integer", "const": 1 },
+    "chain_id": { "type": "integer" },
+    "sources": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["source_id", "segments"],
+        "properties": {
+          "source_id": { "type": "string" },
+          "segments": {
+            "type": "array",
+            "items": { "$ref": "#/$defs/segment" }
+          }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "segment": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "start_block",
+        "end_block",
+        "start_block_hash",
+        "end_block_hash",
+        "start_block_parent_hash",
+        "status"
+      ],
+      "properties": {
+        "start_block": { "type": "integer", "minimum": 0 },
+        "end_block": { "type": "integer", "minimum": 0 },
+        "start_block_hash": { "type": "string", "pattern": "^0x[0-9a-f]{64}$" },
+        "end_block_hash": { "type": "string", "pattern": "^0x[0-9a-f]{64}$" },
+        "start_block_parent_hash": {
+          "type": "string",
+          "pattern": "^0x[0-9a-f]{64}$"
+        },
+        "status": { "enum": ["complete_empty", "complete_with_rows"] },
+        "row_count": { "type": "integer", "minimum": 0 },
+        "end_block_timestamp": {
+          "description": "Unix seconds of end_block, from the chain. Freshness is a property of the data, not of the file on disk.",
+          "type": "integer",
+          "minimum": 0
+        },
+        "indexed_at": { "type": "string", "format": "date-time" }
+      }
+    }
+  }
+}

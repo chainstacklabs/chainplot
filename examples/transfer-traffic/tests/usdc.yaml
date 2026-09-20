@@ -1,0 +1,4 @@
+dataset: usdc
+expect:
+  row_count: 92
+  columns: [rindexer_id, contract_address, from, to, value, tx_hash, block_number, block_timestamp, block_hash, network, tx_index, log_index, chain_id]

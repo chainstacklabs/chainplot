@@ -1,0 +1,18 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://chainplot.dev/schema/progress",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "type", "run_id", "stage"],
+  "properties": {
+    "schema_version": { "type": "integer", "const": 1 },
+    "type": { "const": "progress" },
+    "run_id": { "type": "string", "minLength": 1 },
+    "stage": { "type": "string", "minLength": 1 },
+    "message": { "type": "string" },
+    "rows": { "type": "integer", "minimum": 0 },
+    "output_bytes": { "type": "integer", "minimum": 0 },
+    "retries": { "type": "integer", "minimum": 0 },
+    "ts": { "type": "string" }
+  }
+}

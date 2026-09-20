@@ -1,0 +1,113 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://chainplot.dev/schema/manifest",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "snapshot_id",
+    "mode",
+    "files",
+    "source_path"
+  ],
+  "properties": {
+    "schema_version": {
+      "type": "integer"
+    },
+    "snapshot_id": {
+      "type": "string"
+    },
+    "mode": {
+      "enum": [
+        "results_only",
+        "dataset_included",
+        "dataset_referenced"
+      ]
+    },
+    "files": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "source_path": {
+      "type": "string"
+    },
+    "coverage": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "source_id",
+          "start_block",
+          "end_block",
+          "status"
+        ],
+        "properties": {
+          "source_id": {
+            "type": "string"
+          },
+          "start_block": {
+            "type": "integer"
+          },
+          "end_block": {
+            "type": "integer"
+          },
+          "status": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "finality": {
+      "oneOf": [
+        {
+          "type": "null"
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "policy"
+          ],
+          "properties": {
+            "policy": {
+              "enum": [
+                "finalized",
+                "confirmation_depth"
+              ]
+            },
+            "depth": {
+              "type": "integer",
+              "minimum": 1
+            }
+          }
+        }
+      ]
+    },
+    "freshness": {
+      "type": "string"
+    },
+    "external": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "path",
+        "checksum"
+      ],
+      "properties": {
+        "path": {
+          "type": "string"
+        },
+        "checksum": {
+          "type": "string"
+        },
+        "bytes": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "description": "A dataset published alongside the release rather than inside it. `path` is relative to the release root, so a consumer resolves it against the base URL it fetched the release from."
+    }
+  }
+}

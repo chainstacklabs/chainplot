@@ -1,0 +1,200 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://chainplot.dev/schema/project",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["format_version", "id"],
+  "properties": {
+    "format_version": { "type": "integer", "const": 1 },
+    "id": { "type": "string", "minLength": 1 },
+    "datasets": { "type": "array", "items": { "$ref": "#/$defs/dataset" } },
+    "queries": { "type": "array", "items": { "$ref": "#/$defs/query" } },
+    "dashboards": { "type": "array", "items": { "$ref": "#/$defs/dashboard" } },
+    "models": { "type": "array", "items": { "$ref": "#/$defs/model" } },
+    "chain_sources": { "type": "array", "maxItems": 1, "items": { "$ref": "#/$defs/chain_source" } },
+    "event_sources": { "type": "array", "maxItems": 20, "items": { "$ref": "#/$defs/event_source" } },
+    "publish_targets": { "type": "array", "items": { "$ref": "#/$defs/publish_target" } },
+    "policy": { "type": "object", "additionalProperties": false, "properties": {
+      "block_budget": { "type": "integer", "minimum": 1 },
+      "row_limit": {
+        "description": "Rows a single query may return. Bounds the viewer, which renders every row: results ride inside the release and the table is not virtualised. Going over is refused, never truncated.",
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 1000000,
+        "default": 10000
+      },
+      "release_mode": {
+        "description": "Mode `build` uses when none is given on the command line. The default publishes the page and its results without the dataset; declare dataset_included to ship the parquet so a fork can recompute from it.",
+        "enum": ["dataset_included", "results_only", "dataset_referenced"],
+        "default": "results_only"
+      }
+    }}
+  },
+  "$defs": {
+    "dataset": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "snapshot"],
+      "properties": {
+        "id": { "type": "string" },
+        "snapshot": { "type": "string" },
+        "schema": { "type": "string" }
+      }
+    },
+    "query": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "file", "dataset"],
+      "properties": {
+        "id": { "type": "string" },
+        "file": { "type": "string" },
+        "dataset": { "type": "string" },
+        "title": { "type": "string", "maxLength": 120 },
+        "raw_amount_columns": {
+          "description": "Columns holding integer token amounts as decimal strings. A bare name declares the column raw; the object form also drives display scaling.",
+          "type": "array",
+          "items": { "$ref": "#/$defs/raw_amount_column" }
+        }
+      }
+    },
+    "raw_amount_column": {
+      "oneOf": [
+        { "type": "string", "minLength": 1 },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["name"],
+          "properties": {
+            "name": { "type": "string", "minLength": 1 },
+            "decimals": {
+              "description": "Token decimals. Display divides by 10^decimals; the stored value is never rewritten.",
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 77
+            },
+            "symbol": { "type": "string", "maxLength": 16 },
+            "label": { "type": "string", "maxLength": 64 }
+          }
+        }
+      ]
+    },
+    "dashboard": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "title", "panels"],
+      "properties": {
+        "id": { "type": "string" },
+        "title": { "type": "string" },
+        "description": { "type": "string" },
+        "panels": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["query", "chart"],
+            "properties": {
+              "query": { "type": "string" },
+              "chart": { "enum": ["line", "bar", "area", "kpi", "table"] },
+              "title": { "type": "string", "maxLength": 120 },
+              "description": { "type": "string", "maxLength": 240 },
+              "span": {
+                "description": "Grid width. Tables and wide charts usually want 'full'.",
+                "enum": ["half", "full"],
+                "default": "half"
+              },
+              "hide_columns": {
+                "description": "Columns the query computes but the panel does not show, such as an explicit sort key.",
+                "type": "array",
+                "items": { "type": "string" }
+              },
+              "unit": { "type": "string", "maxLength": 16 }
+            }
+          }
+        }
+      }
+    },
+    "model": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "file", "depends_on"],
+      "properties": {
+        "id": { "type": "string" },
+        "file": { "type": "string" },
+        "depends_on": { "type": "array", "items": { "type": "string" } },
+        "columns": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "chain_source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "chain_id", "rpc_secret", "finality"],
+      "properties": {
+        "id": { "type": "string" },
+        "chain_id": { "type": "integer" },
+        "rpc_secret": { "type": "string" },
+        "finality": {
+          "oneOf": [
+            { "type": "object", "additionalProperties": false, "required": ["policy"],
+              "properties": { "policy": { "const": "finalized" } } },
+            { "type": "object", "additionalProperties": false, "required": ["policy", "depth"],
+              "properties": { "policy": { "const": "confirmation_depth" }, "depth": { "type": "integer", "minimum": 1 } } }
+          ]
+        }
+      }
+    },
+    "event_source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "chain", "addresses", "abi", "events", "start_block", "end"],
+      "properties": {
+        "id": { "type": "string" },
+        "chain": { "type": "string" },
+        "addresses": { "type": "array", "minItems": 1, "maxItems": 20, "items": { "type": "string" } },
+        "abi": { "type": "string" },
+        "events": { "type": "array", "items": { "type": "string" } },
+        "start_block": { "type": "integer", "minimum": 0 },
+        "end": {
+          "oneOf": [
+            { "type": "object", "additionalProperties": false, "required": ["mode", "block"],
+              "properties": { "mode": { "const": "pinned" }, "block": { "type": "integer" } } },
+            { "type": "object", "additionalProperties": false, "required": ["mode"],
+              "properties": { "mode": { "const": "follow_finalized" } } }
+          ]
+        },
+        "indexed_filters": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["event_name"],
+            "properties": {
+              "event_name": { "type": "string" },
+              "indexed_1": { "type": "array", "items": { "type": "string" } },
+              "indexed_2": { "type": "array", "items": { "type": "string" } },
+              "indexed_3": { "type": "array", "items": { "type": "string" } }
+            }
+          }
+        }
+      }
+    },
+    "publish_target": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "type"],
+      "properties": {
+        "id": { "type": "string" },
+        "type": { "enum": ["directory", "s3"] },
+        "path": { "type": "string" },
+        "bucket": { "type": "string" },
+        "prefix": {
+          "description": "Key prefix inside the target. Required when one bucket or directory holds more than one project: without it each project's latest.json overwrites the others.",
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*(/[A-Za-z0-9._-]+)*$",
+          "maxLength": 128
+        },
+        "dataset_license": { "type": "string" },
+        "public_base_url": { "type": "string" }
+      }
+    }
+  }
+}

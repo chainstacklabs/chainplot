@@ -1,0 +1,49 @@
+# Chainplot ingest runtime: our Postgres + producer with the CLI and the
+# pinned rindexer binary. No docker.sock anywhere.
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: chainplot
+      POSTGRES_PASSWORD: chainplot
+      POSTGRES_DB: chainplot
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U chainplot -d chainplot"]
+      interval: 2s
+      timeout: 5s
+      retries: 30
+
+  producer:
+    # The producer image is the chainplot CLI plus the pinned rindexer binary.
+    # It is built from the chainplot repo, not from this project — a scaffolded
+    # project has no CLI sources to build from. Once, from a chainplot checkout:
+    #
+    #   docker build --platform linux/amd64 \
+    #     -t chainplot:local -f docker/producer.Dockerfile .
+    #
+    # Point CHAINPLOT_IMAGE at your own tag to use a different build.
+    image: ${CHAINPLOT_IMAGE:-chainplot:local}
+    platform: linux/amd64
+    depends_on:
+      postgres:
+        condition: service_healthy
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql://chainplot:chainplot@postgres:5432/chainplot
+    volumes:
+      - ./:/workspace
+    working_dir: /workspace
+    # `serve --host 0.0.0.0 --port 4173` inside the container is reachable from
+    # a browser on this machine at http://127.0.0.1:4173, and from nowhere else.
+    ports:
+      - "127.0.0.1:4173:4173"
+    # The image entrypoint is the CLI itself, so a bare `command:` would be
+    # read as CLI arguments. Hold the container open and drive it with
+    # `docker compose exec producer chainplot <command> --json`.
+    entrypoint: ["sleep"]
+    command: ["infinity"]
+
+volumes:
+  postgres-data:

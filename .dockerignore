@@ -1,0 +1,11 @@
+node_modules
+dist
+coverage
+.chainplot
+.env
+.env.*
+!.env.example
+.git
+scripts
+docs
+tests

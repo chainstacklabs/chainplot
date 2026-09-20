@@ -1,0 +1,161 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://chainplot.dev/schema/plan",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "intent",
+    "project_id",
+    "project_digest",
+    "created_at",
+    "chain",
+    "sources",
+    "actions",
+    "limits",
+    "deletes_data",
+    "makes_data_public",
+    "state_assumptions"
+  ],
+  "properties": {
+    "schema_version": { "type": "integer", "const": 1 },
+    "plan_id": { "type": "string", "minLength": 1 },
+    "intent": { "enum": ["ingest", "refresh", "build", "publish"] },
+    "project_id": { "type": "string", "minLength": 1 },
+    "project_digest": { "type": "string", "minLength": 1 },
+    "created_at": { "type": "string" },
+    "chain": {
+      "oneOf": [
+        { "type": "null" },
+        { "$ref": "#/$defs/chain" }
+      ]
+    },
+    "sources": { "type": "array", "items": { "$ref": "#/$defs/plan_source" } },
+    "actions": { "type": "array", "items": { "$ref": "#/$defs/action" } },
+    "limits": { "$ref": "#/$defs/limits" },
+    "deletes_data": { "type": "boolean" },
+    "makes_data_public": { "type": "boolean" },
+    "state_assumptions": { "$ref": "#/$defs/state_assumptions" },
+    "publish_target": { "type": ["string", "null"] },
+    "release_digest": {
+      "description": "content_digest of the built release a publish plan would upload. Binds the plan to the bytes, so rebuilt content is not mistaken for an already-applied run.",
+      "type": ["string", "null"]
+    }
+  },
+  "$defs": {
+    "chain": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["chain_id", "finality"],
+      "properties": {
+        "chain_id": { "type": "integer" },
+        "finality": {
+          "oneOf": [
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["policy"],
+              "properties": { "policy": { "const": "finalized" } }
+            },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["policy", "depth"],
+              "properties": {
+                "policy": { "const": "confirmation_depth" },
+                "depth": { "type": "integer", "minimum": 1 }
+              }
+            }
+          ]
+        }
+      }
+    },
+    "plan_source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "source_id",
+        "end_mode",
+        "job_start",
+        "job_end",
+        "job_target_end"
+      ],
+      "properties": {
+        "source_id": { "type": "string" },
+        "end_mode": { "enum": ["pinned", "follow_finalized"] },
+        "job_start": { "type": "integer", "minimum": 0 },
+        "job_end": { "type": "integer", "minimum": -1 },
+        "job_target_end": { "type": "integer", "minimum": 0 },
+        "required_end": { "type": ["integer", "null"] },
+        "blocks_remaining": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "action": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["type", "source_id"],
+          "properties": {
+            "type": { "const": "ingest" },
+            "source_id": { "type": "string" }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["type", "source_id"],
+          "properties": {
+            "type": { "const": "export" },
+            "source_id": { "type": "string" }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["type"],
+          "properties": { "type": { "const": "build_results" } }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["type", "target_id"],
+          "properties": {
+            "type": { "const": "publish" },
+            "target_id": { "type": "string" }
+          }
+        }
+      ]
+    },
+    "limits": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["block_budget"],
+      "properties": {
+        "block_budget": { "type": "integer", "minimum": 1 },
+        "blocks_in_range": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "state_assumptions": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["sources"],
+      "properties": {
+        "sources": {
+          "type": "object",
+          "additionalProperties": false,
+          "patternProperties": {
+            "^[a-z0-9][a-z0-9_-]*$": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["last_proven_complete_block"],
+              "properties": {
+                "last_proven_complete_block": { "type": "integer", "minimum": -1 }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}
