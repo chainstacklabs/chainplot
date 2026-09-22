@@ -6,6 +6,35 @@ import { ENTRY_POINT_MARKER } from "./entryPoint.js";
 
 const LATEST = "latest.json";
 const TEMP_PREFIX = ".latest-tmp-";
+
+/**
+ * Stage a file next to where it is going, inside a directory of its own.
+ *
+ * `mkdtemp` is the platform's answer to the question this raises: it creates
+ * the directory itself, with a name nobody can guess and permissions nobody
+ * else can enter, so no symlink can be waiting at the path we are about to
+ * write. Building a name by hand and opening it carefully gets to the same
+ * place, but this is the version a reader does not have to check.
+ *
+ * Staging beside the destination rather than in the system temp directory
+ * keeps the final step a rename within one filesystem, which is what makes
+ * it atomic.
+ */
+function stage(destination: string, name: string, write: (tempPath: string) => void): {
+  path: string;
+  discard: () => void;
+} {
+  fs.mkdirSync(path.dirname(destination), { recursive: true });
+  const dir = fs.mkdtempSync(path.join(path.dirname(destination), TEMP_PREFIX));
+  const tempPath = path.join(dir, name);
+  try {
+    write(tempPath);
+  } catch (err) {
+    fs.rmSync(dir, { recursive: true, force: true });
+    throw err;
+  }
+  return { path: tempPath, discard: () => fs.rmSync(dir, { recursive: true, force: true }) };
+}
 const ENTRY_POINT = "index.html";
 
 export class DirectoryTarget implements PublishTarget {
@@ -96,24 +125,17 @@ export class DirectoryTarget implements PublishTarget {
     // processes at once, which the S3 target rules out with a conditional
     // write and this one cannot; `docs/capabilities.md` says so rather than
     // claiming a guarantee that is not here.
-    const temp = path.join(
-      path.dirname(entry),
-      `${TEMP_PREFIX}entry-${process.pid}-${Date.now()}`,
-    );
-    fs.mkdirSync(path.dirname(entry), { recursive: true });
-    fs.writeFileSync(temp, html);
+    const staged = stage(entry, ENTRY_POINT, (temp) => fs.writeFileSync(temp, html));
     try {
       if (existed) {
         // Replacing our own page: rename overwrites, atomically.
-        fs.renameSync(temp, entry);
+        fs.renameSync(staged.path, entry);
       } else {
         // Claiming a free key: link fails if anything appeared since the
         // check above, so a site's own index.html is never erased.
-        fs.linkSync(temp, entry);
-        fs.unlinkSync(temp);
+        fs.linkSync(staged.path, entry);
       }
     } catch (err) {
-      fs.rmSync(temp, { force: true });
       if ((err as NodeJS.ErrnoException).code !== "EEXIST") throw err;
       // Something appeared since the check. Another chainplot publisher wrote
       // the same bytes, which is the outcome we wanted; anything else means
@@ -122,6 +144,8 @@ export class DirectoryTarget implements PublishTarget {
         fs.existsSync(entry) &&
         fs.readFileSync(entry, "utf8").includes(ENTRY_POINT_MARKER)
       );
+    } finally {
+      staged.discard();
     }
     return true;
   }
@@ -129,12 +153,13 @@ export class DirectoryTarget implements PublishTarget {
   async promoteLatest(pointer: LatestPointer): Promise<void> {
     // Atomic on the same filesystem: write temp, rename over latest.json.
     const latest = this.latestPath();
-    const temp = path.join(
-      path.dirname(latest),
-      `${TEMP_PREFIX}${process.pid}-${Date.now()}`,
+    const staged = stage(latest, LATEST, (temp) =>
+      fs.writeFileSync(temp, `${JSON.stringify(pointer, null, 2)}\n`),
     );
-    fs.mkdirSync(path.dirname(latest), { recursive: true });
-    fs.writeFileSync(temp, `${JSON.stringify(pointer, null, 2)}\n`);
-    fs.renameSync(temp, latest);
+    try {
+      fs.renameSync(staged.path, latest);
+    } finally {
+      staged.discard();
+    }
   }
 }
