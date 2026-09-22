@@ -46,15 +46,23 @@ export function groupDigits(digits: string): string {
 /**
  * Scale an integer amount by `decimals`, exactly.
  *
- * 983644533552 with 6 decimals → "983,644.533552". Trailing zeros in the
- * fraction are dropped; the integer part is never rounded.
+ * 983644533552 with 6 decimals → "983,644.533552". The integer part is never
+ * rounded.
+ *
+ * `trimZeros` decides what happens to a fraction that ends in zeros, and the
+ * two callers want opposite things. Rendering an exact value drops them, so
+ * 9000000000000 reads "9,000,000" rather than "9,000,000.000000". Rendering a
+ * figure that has already been rounded to a fixed width keeps them, so a
+ * column of amounts lines up on the decimal point instead of showing
+ * "9,000,000", "1,499,999.5" and "101,570,558.71" side by side.
  */
-export function scaleAmount(value: bigint, decimals: number): string {
+export function scaleAmount(value: bigint, decimals: number, trimZeros = true): string {
   if (decimals <= 0) return groupDigits(value.toString());
   const negative = value < 0n;
   const digits = (negative ? -value : value).toString().padStart(decimals + 1, "0");
   const whole = digits.slice(0, digits.length - decimals);
-  const fraction = digits.slice(digits.length - decimals).replace(/0+$/, "");
+  const raw = digits.slice(digits.length - decimals);
+  const fraction = trimZeros ? raw.replace(/0+$/, "") : raw;
   const body = groupDigits(whole) + (fraction ? `.${fraction}` : "");
   return (negative ? "-" : "") + body;
 }
@@ -85,10 +93,13 @@ export function displayDecimals(value: bigint, decimals: number): number {
   return magnitude === 0n ? decimals : 2;
 }
 
-/** Display rendering of a raw amount: exact below one unit, 2dp above. */
+/**
+ * Display rendering of a raw amount: exact below one unit, 2dp above, and
+ * always padded to that width so a column aligns on the decimal point.
+ */
 export function displayAmount(value: bigint, decimals: number): string {
   const keep = displayDecimals(value, decimals);
-  return scaleAmount(roundAmount(value, decimals, keep), keep);
+  return scaleAmount(roundAmount(value, decimals, keep), keep, false);
 }
 
 /** Middle-truncate a 0x hash so a table column stays readable. */
@@ -143,6 +154,47 @@ export function formatCell(value: unknown, column: ColumnMeta): Formatted {
     return { text: shortHex(value), exact, numeric: false };
   }
   return { text: exact, exact, numeric: false };
+}
+
+/**
+ * DuckDB types that are numbers in their own right. Raw amounts are not among
+ * them: a uint256 arrives as VARCHAR, which is why `raw_amount` is checked
+ * first everywhere this is used.
+ *
+ * The match runs to the end of the type on purpose. A list of numbers is not
+ * a number — `INTEGER[]` renders as `[1, 2, 3]`, which belongs on the left
+ * with the rest of the text — and anything that ends the type early would
+ * accept it.
+ */
+/** The one type whose values decide, because DuckDB carries a uint256 in it. */
+const TEXT_TYPE = /^VARCHAR(\(\s*\d+\s*\))?$/i;
+
+const NUMERIC_TYPE =
+  /^(U?(TINY|SMALL|BIG|HUGE)INT|U?INTEGER|FLOAT|REAL|DOUBLE|DECIMAL(\(\s*\d+\s*,\s*\d+\s*\))?)$/i;
+
+/**
+ * Whether a column should be read as a column of numbers.
+ *
+ * Alignment belongs to the column, not to the cell: deciding per value puts a
+ * null, which has no digits, out of line with the figures above it, and can
+ * left-align a header over right-aligned cells. The schema answers this for
+ * every declared amount and every numeric type; a VARCHAR is settled by its
+ * values, so a uint256 that was never declared an amount still reads as one.
+ */
+export function isNumericColumn(column: ColumnMeta, values: readonly unknown[] = []): boolean {
+  if (column.raw_amount) return true;
+  if (NUMERIC_TYPE.test(column.logical_type)) return true;
+  // Only text is settled by its values. Every other type has already answered
+  // for itself, and a type whose values happen to look like digits — a BIT
+  // string, an enum label — is not a number because they do.
+  if (!TEXT_TYPE.test(column.logical_type)) return false;
+  let seen = 0;
+  for (const value of values) {
+    if (value === null || value === undefined) continue;
+    if (asBigInt(value) === null) return false;
+    seen += 1;
+  }
+  return seen > 0;
 }
 
 export function columnLabel(column: ColumnMeta): string {

@@ -12,13 +12,15 @@ import {
   columnLabel,
   compareValues,
   formatCell,
+  isNumericColumn,
   relativeTime,
   rowWindow,
   toChartNumber,
 } from "./format.js";
 
 /** Where a reader learns how to rebuild a release from its dataset. */
-const FORK_HOWTO_URL = "https://github.com/chainstacklabs/chainplot#fork-a-published-release";
+const CHAINPLOT_REPO_URL = "https://github.com/chainstacklabs/chainplot";
+const FORK_HOWTO_URL = `${CHAINPLOT_REPO_URL}#fork-a-published-release`;
 
 /** Columns the panel asked to compute but not show, e.g. an explicit sort key. */
 function visibleColumns(
@@ -160,6 +162,20 @@ function DataTable({
   const [rowHeight, setRowHeight] = useState(ASSUMED_ROW_HEIGHT);
   const bodyRef = useRef<HTMLTableSectionElement | null>(null);
 
+  // Alignment is decided once per column, so a header, its figures and a null
+  // among them all sit on the same edge.
+  const numericColumns = useMemo(() => {
+    const numeric = new Set<number>();
+    for (const index of columns) {
+      const column = result.columns[index];
+      if (!column) continue;
+      if (isNumericColumn(column, result.rows.map((row) => row[index]))) {
+        numeric.add(index);
+      }
+    }
+    return numeric;
+  }, [columns, result]);
+
   const sorted = useMemo(() => {
     if (sortCol === null) return result.rows;
     const rows = [...result.rows];
@@ -220,7 +236,13 @@ function DataTable({
                 <th
                   key={column.name}
                   aria-sort={active ? (asc ? "ascending" : "descending") : "none"}
-                  className={column.raw_amount ? "numeric raw" : "text"}
+                  className={
+                    numericColumns.has(index)
+                      ? column.raw_amount
+                        ? "numeric raw"
+                        : "numeric"
+                      : "text"
+                  }
                 >
                   <button
                     type="button"
@@ -256,7 +278,7 @@ function DataTable({
                 return (
                   <td
                     key={column.name}
-                    className={cell.numeric ? "numeric" : "text"}
+                    className={numericColumns.has(index) ? "numeric" : "text"}
                     title={cell.text === cell.exact ? undefined : cell.exact}
                   >
                     {cell.text}
@@ -528,7 +550,11 @@ export function App() {
       ))}
 
       <footer className="colophon">
-        Built by <span>chainplot</span> · {release.mode.replace(/_/g, " ")} ·{" "}
+        Built by{" "}
+        <a className="brand" href={CHAINPLOT_REPO_URL} rel="noopener">
+          Chainplot
+        </a>{" "}
+        · {release.mode.replace(/_/g, " ")} ·{" "}
         <time dateTime={release.generated_at}>{release.generated_at}</time>
         {" · "}
         {release.mode === "results_only" ? (

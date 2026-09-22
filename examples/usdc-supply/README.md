@@ -27,7 +27,7 @@ indexed filters, a model, and time-series charts.
 
 ## Run it
 
-Build the producer image once from a chainplot checkout, then:
+Build the producer image once from a Chainplot checkout, then:
 
 ```bash
 cp .env.example .env        # fill in RPC_URL

@@ -44,6 +44,15 @@ INSERT, COPY, ATTACH, PRAGMA and friends outright, so the rule is the parser's,
 not a keyword denylist. Filesystem and network access are disabled before any
 project SQL executes, models included: a forked recipe is a stranger's code.
 
+The session runs in UTC. rindexer exports `block_timestamp` as `TIMESTAMP WITH
+TIME ZONE`, and DuckDB renders, casts and buckets that type in the session
+`TimeZone`, which otherwise follows the machine. The worker pins it, so
+`strftime`, `date_trunc`, `hour()` and casts to `TIMESTAMP` give the same
+answer on the producer, in a fork in another zone, and in `query` on a laptop.
+This is a worker-wide contract, not a per-query option; it needs DuckDB's ICU
+extension, which the bundled binaries link statically, and the worker refuses
+to run project SQL on a build without it.
+
 `cp_sortkey(v)` is available in every query. It maps a decimal-string amount to
 a fixed-width key whose lexicographic order is signed-numeric order, so
 `ORDER BY cp_sortkey(value)` sorts uint256 correctly without projecting a

@@ -160,6 +160,24 @@ async function execute(req: WorkerRequest): Promise<{
       // trusted than the query itself, so they must land on this side of it.
       // DuckDB does not allow re-enabling external access in a session.
       await conn.run("SET enable_external_access=false");
+      // rindexer exports block_timestamp as TIMESTAMP WITH TIME ZONE, and
+      // DuckDB renders, casts and buckets that type in the session's
+      // TimeZone, which defaults to the machine's. Pinning UTC is what makes
+      // an hourly or daily figure the same on the producer, in a fork on a
+      // laptop in another zone, and in the published results. The setting
+      // belongs to DuckDB's ICU extension, which the bundled binaries link
+      // statically; a build without it must fail here, before any project
+      // SQL, rather than quietly compute in local time.
+      try {
+        await conn.run("SET TimeZone='UTC'");
+      } catch (err) {
+        throw issueError({
+          code: "internal",
+          message:
+            "DuckDB build lacks ICU time-zone support; the query worker requires it " +
+            `so timestamps compute in UTC on every machine (${err instanceof Error ? err.message : String(err)})`,
+        });
+      }
       await conn.run(SORT_KEY_MACRO);
 
       for (const model of req.models ?? []) {
