@@ -2,9 +2,11 @@ import fs from "node:fs";
 import path from "node:path";
 import type { LatestPointer } from "./target.js";
 import type { PublishTarget } from "./target.js";
+import { ENTRY_POINT_MARKER } from "./entryPoint.js";
 
 const LATEST = "latest.json";
 const TEMP_PREFIX = ".latest-tmp-";
+const ENTRY_POINT = "index.html";
 
 export class DirectoryTarget implements PublishTarget {
   constructor(
@@ -15,6 +17,11 @@ export class DirectoryTarget implements PublishTarget {
   /** The pointer path, namespaced when the target declares a prefix. */
   private latestPath(): string {
     return path.join(this.rootDir, this.keyPrefix, LATEST);
+  }
+
+  /** The forwarding page, beside the pointer. */
+  private entryPointPath(): string {
+    return path.join(this.rootDir, this.keyPrefix, ENTRY_POINT);
   }
 
   async uploadFiles(
@@ -66,6 +73,57 @@ export class DirectoryTarget implements PublishTarget {
     const file = this.latestPath();
     if (!fs.existsSync(file)) return null;
     return JSON.parse(fs.readFileSync(file, "utf8")) as LatestPointer;
+  }
+
+  async promoteEntryAlias(): Promise<boolean> {
+    // A file cannot be named `<prefix>/`. Anything serving a directory of
+    // files resolves the bare path to index.html by itself anyway.
+    return false;
+  }
+
+  async promoteEntryPoint(html: string): Promise<boolean> {
+    const entry = this.entryPointPath();
+    const existed = fs.existsSync(entry);
+    if (existed && !fs.readFileSync(entry, "utf8").includes(ENTRY_POINT_MARKER)) {
+      return false;
+    }
+    // Temp-then-publish, so a reader never sees a half-written page.
+    //
+    // Claiming a free key is atomic below; replacing our own page is not,
+    // because POSIX has no compare-and-replace. A foreign writer that
+    // replaces our page between the marker read above and the rename below
+    // loses its file. That window is a local directory being written by two
+    // processes at once, which the S3 target rules out with a conditional
+    // write and this one cannot; `docs/capabilities.md` says so rather than
+    // claiming a guarantee that is not here.
+    const temp = path.join(
+      path.dirname(entry),
+      `${TEMP_PREFIX}entry-${process.pid}-${Date.now()}`,
+    );
+    fs.mkdirSync(path.dirname(entry), { recursive: true });
+    fs.writeFileSync(temp, html);
+    try {
+      if (existed) {
+        // Replacing our own page: rename overwrites, atomically.
+        fs.renameSync(temp, entry);
+      } else {
+        // Claiming a free key: link fails if anything appeared since the
+        // check above, so a site's own index.html is never erased.
+        fs.linkSync(temp, entry);
+        fs.unlinkSync(temp);
+      }
+    } catch (err) {
+      fs.rmSync(temp, { force: true });
+      if ((err as NodeJS.ErrnoException).code !== "EEXIST") throw err;
+      // Something appeared since the check. Another chainplot publisher wrote
+      // the same bytes, which is the outcome we wanted; anything else means
+      // there is no entry point to report.
+      return (
+        fs.existsSync(entry) &&
+        fs.readFileSync(entry, "utf8").includes(ENTRY_POINT_MARKER)
+      );
+    }
+    return true;
   }
 
   async promoteLatest(pointer: LatestPointer): Promise<void> {
