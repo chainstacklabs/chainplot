@@ -235,11 +235,15 @@ Full model, including the SSRF guard on `fork --from https://…`:
 ## Examples
 
 [`examples/`](examples/) — USDC transfer activity (full ingest pipeline), WETH
-deposit/withdrawal flows (multi-event source), and forking a published dataset
-as a second agent. Both ingest examples are published live:
+deposit/withdrawal flows (multi-event source), a year of USDC supply changes,
+and forking a published dataset as a second agent. Every ingest example is
+published live, each at its publish root — the link stays put while the
+release it forwards to changes underneath it ([the link you can
+share](#the-link-you-can-share)).
 
-- [USDC transfer activity](https://pub-0593f9128f674400bcbbc940cf9f01b1.r2.dev/transfer-traffic/latest.json) — 92 transfers, blocks 18,600,000–18,600,010
-- [WETH wrap/unwrap](https://pub-0593f9128f674400bcbbc940cf9f01b1.r2.dev/protocol-flows/latest.json) — 258 deposit/withdrawal events over the same range
+- [USDC transfer activity](https://chainplot.chainstacklabs.com/transfer-traffic/) — 92 transfers, blocks 18,600,000–18,600,010
+- [WETH wrap/unwrap](https://chainplot.chainstacklabs.com/protocol-flows/) — 258 deposit/withdrawal events over the same range
+- [USDC supply changes](https://chainplot.chainstacklabs.com/usdc-supply/) — ~6.8M mints and burns over roughly a year, published `results_only`
 
 Publishing more than one project into a single bucket needs a `prefix` on the
 target; without one, each project's `latest.json` overwrites the others'.

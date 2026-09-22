@@ -67,7 +67,7 @@ dashboards:
 publish_targets:
   - id: r2
     type: s3
-    bucket: chainplot-test
+    bucket: chainplot
     prefix: protocol-flows
-    public_base_url: https://pub-0593f9128f674400bcbbc940cf9f01b1.r2.dev
+    public_base_url: https://chainplot.chainstacklabs.com
     dataset_license: CC-BY-4.0
