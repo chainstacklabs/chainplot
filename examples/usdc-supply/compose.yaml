@@ -16,9 +16,9 @@ services:
       retries: 30
 
   producer:
-    # The producer image is the chainplot CLI plus the pinned rindexer binary.
-    # It is built from the chainplot repo, not from this project — a scaffolded
-    # project has no CLI sources to build from. Once, from a chainplot checkout:
+    # The producer image is the Chainplot CLI plus the pinned rindexer binary.
+    # It is built from the Chainplot repo, not from this project — a scaffolded
+    # project has no CLI sources to build from. Once, from a Chainplot checkout:
     #
     #   docker build --platform linux/amd64 \
     #     -t chainplot:local -f docker/producer.Dockerfile .

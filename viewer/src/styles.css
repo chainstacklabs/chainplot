@@ -186,13 +186,17 @@ body {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 1rem;
-  align-items: start;
+  /* Cards in a row stretch to the same height, so a KPI with a description
+     and one without still end up level. */
+  align-items: stretch;
 }
 
 .panel {
   /* min-width:0 lets a grid child shrink, which is what keeps a wide table
      inside its card instead of stretching the whole row. */
   min-width: 0;
+  display: flex;
+  flex-direction: column;
   padding: 1rem 1.25rem 1.25rem;
   border: 1px solid var(--border-static);
   border-radius: var(--radius-l);
@@ -228,6 +232,9 @@ body {
   align-items: baseline;
   gap: 0.55rem;
   flex-wrap: wrap;
+  /* Sit at the bottom of the card, so values line up across a row whatever
+     the header above them took. */
+  margin-top: auto;
 }
 
 .kpi-value {
@@ -416,9 +423,12 @@ table.data-table th.raw button::after {
   font-size: 0.75rem;
 }
 
-.colophon span {
+/* The wordmark differs from the other footer link by weight alone: both are
+   links, so both carry the underline from `.colophon a` below. A release
+   published `results_only` has no fork link, and the wordmark is then the
+   only link in the footer. */
+.colophon .brand {
   font-weight: 600;
-  color: var(--text-secondary);
 }
 
 .colophon a {

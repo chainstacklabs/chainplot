@@ -7,8 +7,8 @@ thing you supply is an archive-capable RPC endpoint.
 
 ## One-time: build the producer image
 
-The producer image is the chainplot CLI plus rindexer. It is built from a
-chainplot checkout, not from this project — a scaffolded project has no CLI
+The producer image is the Chainplot CLI plus rindexer. It is built from a
+Chainplot checkout, not from this project — a scaffolded project has no CLI
 sources. rindexer ships linux/amd64 only, so build for that platform:
 
 ```bash

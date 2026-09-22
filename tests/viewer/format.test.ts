@@ -4,6 +4,7 @@ import {
   columnLabel,
   compareValues,
   displayAmount,
+  isNumericColumn,
   formatCell,
   groupDigits,
   relativeTime,
@@ -214,9 +215,23 @@ describe("display rounding", () => {
   });
 
   it("rounds half away from zero rather than truncating", () => {
-    expect(displayAmount(1_999_999n, 6)).toBe("2");
-    expect(displayAmount(-1_999_999n, 6)).toBe("-2");
+    expect(displayAmount(1_999_999n, 6)).toBe("2.00");
+    expect(displayAmount(-1_999_999n, 6)).toBe("-2.00");
     expect(displayAmount(1_005_000n, 6)).toBe("1.01");
+  });
+
+  // A column of amounts is read down the decimal point. Trimming the zeros
+  // here would print "9,000,000", "1,499,999.5" and "101,570,558.71" in one
+  // column, which is what the exact rendering is for.
+  it("pads every rounded figure to the same width", () => {
+    expect(displayAmount(9_000_000_000_000n, 6)).toBe("9,000,000.00");
+    expect(displayAmount(1_499_999_500_000n, 6)).toBe("1,499,999.50");
+    expect(displayAmount(101_570_558_713_200n, 6)).toBe("101,570,558.71");
+  });
+
+  it("still trims trailing zeros when rendering an exact value", () => {
+    expect(scaleAmount(9_000_000_000_000n, 6)).toBe("9,000,000");
+    expect(scaleAmount(1_499_999_500_000n, 6)).toBe("1,499,999.5");
   });
 
   it("keeps full precision below one unit, where the fraction is the value", () => {
@@ -224,10 +239,11 @@ describe("display rounding", () => {
     expect(displayAmount(-1n, 18)).toBe("-0.000000000000000001");
   });
 
-  it("leaves a value that needs no rounding untouched", () => {
+  it("pads a value that needs no rounding, and reveals it exactly on hover", () => {
     const cell = formatCell("1500000", usdc);
-    expect(cell.text).toBe("1.5 USDC");
-    expect(cell.exact).toBe("1500000");
+    expect(cell.text).toBe("1.50 USDC");
+    expect(cell.exact).toContain("1.5 USDC");
+    expect(cell.exact).toContain("1500000");
   });
 
   it("does not round integer columns that are not amounts", () => {
@@ -279,5 +295,67 @@ describe("rowWindow", () => {
 
   it("falls back to rendering everything if a row height is unknown", () => {
     expect(rowWindow(5000, 0, 400, 0, opts).virtual).toBe(false);
+  });
+});
+
+// Alignment follows the column, not the value. Deciding per cell put a null,
+// which has no digits, out of line with the figures above it, and left-aligned
+// a header over right-aligned cells.
+describe("isNumericColumn", () => {
+  it("treats a declared amount as numeric however it is typed", () => {
+    expect(
+      isNumericColumn({ name: "v", logical_type: "VARCHAR", raw_amount: true }, [null]),
+    ).toBe(true);
+  });
+
+  it("treats a numeric logical type as numeric even when every value is null", () => {
+    expect(isNumericColumn({ name: "n", logical_type: "BIGINT" }, [null, null])).toBe(true);
+    expect(isNumericColumn({ name: "d", logical_type: "DECIMAL(18,3)" }, [])).toBe(true);
+    expect(isNumericColumn({ name: "h", logical_type: "HUGEINT" }, [])).toBe(true);
+    expect(isNumericColumn({ name: "u", logical_type: "UBIGINT" }, [])).toBe(true);
+  });
+
+  it("settles a VARCHAR by its values, so an undeclared uint256 still reads as one", () => {
+    const column = { name: "v", logical_type: "VARCHAR" };
+    expect(isNumericColumn(column, ["1", "115792089237316195423570985008687907853269984665640564039457584007913129639935"])).toBe(true);
+    expect(isNumericColumn(column, ["1", null, "2"])).toBe(true);
+  });
+
+  // A list of numbers is not a number: it renders as "[1, 2, 3]" and belongs
+  // on the left with the text. An unanchored type match accepts "INTEGER[]".
+  it("does not treat a list of numbers as a number column", () => {
+    for (const logical_type of ["INTEGER[]", "UBIGINT[]", "DECIMAL(18,3)[]", "DOUBLE[]"]) {
+      expect(isNumericColumn({ name: "l", logical_type }, [])).toBe(false);
+      expect(isNumericColumn({ name: "l", logical_type }, [[1, 2]])).toBe(false);
+    }
+    expect(isNumericColumn({ name: "s", logical_type: "STRUCT(a INTEGER)" }, [])).toBe(false);
+  });
+
+  it("accepts the scalar numeric types as DuckDB spells them", () => {
+    for (const logical_type of [
+      "TINYINT", "SMALLINT", "INTEGER", "BIGINT", "HUGEINT",
+      "UTINYINT", "USMALLINT", "UINTEGER", "UBIGINT", "UHUGEINT",
+      "FLOAT", "REAL", "DOUBLE", "DECIMAL(18,3)", "DECIMAL",
+    ]) {
+      expect(isNumericColumn({ name: "n", logical_type }, [])).toBe(true);
+    }
+  });
+
+  // Only text is settled by its values. A BIT string is "0101" and an enum
+  // label can be any text at all; neither is a number because it reads like
+  // digits.
+  it("does not infer from the values of a type that is not text", () => {
+    expect(isNumericColumn({ name: "b", logical_type: "BIT" }, ["0101", "1"])).toBe(false);
+    expect(isNumericColumn({ name: "e", logical_type: "ENUM('1','2')" }, ["1", "2"])).toBe(false);
+    expect(isNumericColumn({ name: "d", logical_type: "DATE" }, ["20260916"])).toBe(false);
+    expect(isNumericColumn({ name: "u", logical_type: "UUID" }, ["12345"])).toBe(false);
+  });
+
+  it("does not call a VARCHAR numeric on the strength of some of its values", () => {
+    const column = { name: "v", logical_type: "VARCHAR" };
+    expect(isNumericColumn(column, ["1", "Ethereum"])).toBe(false);
+    expect(isNumericColumn(column, ["00:26:20"])).toBe(false);
+    expect(isNumericColumn(column, [])).toBe(false);
+    expect(isNumericColumn(column, [null, null])).toBe(false);
   });
 });
