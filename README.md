@@ -244,6 +244,42 @@ as a second agent. Both ingest examples are published live:
 Publishing more than one project into a single bucket needs a `prefix` on the
 target; without one, each project's `latest.json` overwrites the others'.
 
+## The link you can share
+
+A release directory is named after its content digest, so the same inputs
+republish to the same URL and different inputs get a new one. That makes a
+release immutable, and it also means a link to one moves whenever the release
+does — a new viewer bundle is enough, since the bundle is part of the digest.
+
+So `publish` writes an `index.html` beside `latest.json` that reads the
+pointer in the browser and forwards to whichever release it names. The page
+holds no release of its own, so it is the same bytes every publish and cannot
+fall behind. The publish root is the stable link:
+
+```text
+https://<host>/<prefix>/            → always the current release
+https://<host>/<prefix>/latest.json → the pointer it reads
+```
+
+The page is written twice, at `<prefix>/index.html` and at `<prefix>/`, which
+is what makes the bare URL portable. A host that resolves a directory looks
+for `index.html`, the one name every static host agrees on; an object store
+serves keys and nothing else, so it needs a key of that exact name. Writing
+both means the same link works either way, and it travels with the bucket
+rather than living in a rewrite rule at whichever CDN is in front of it.
+
+The second write is the optional one. A target publishing to the bucket root
+has no directory key to write, no filesystem allows a file named `<prefix>/`,
+a store may refuse a key ending in a separator, and a foreign object already
+sitting there is left alone. Whenever it does not happen, `index.html` is
+still written and `entry_url` names it explicitly, so the link handed back
+always resolves.
+
+`publish` returns it as `entry_url`. If an `index.html` is already at that key
+and chainplot did not write it, it is left alone and `entry_point_written`
+comes back false — a bucket that serves a site of its own keeps its front
+page.
+
 ## Look and feel
 
 The viewer transcribes the Chainstack design tokens from `cp-ui-kit`

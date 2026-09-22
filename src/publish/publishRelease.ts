@@ -12,6 +12,7 @@ import type {
 export type { PublishResult, LatestPointer };
 
 import { latestPointer } from "./latestPointer.js";
+import { entryPointHtml } from "./entryPoint.js";
 import { DirectoryTarget } from "./directory.js";
 import { S3Target, s3EnvFromProcess } from "./s3.js";
 
@@ -170,8 +171,28 @@ export async function publishRelease(
   const pointer: LatestPointer = latestPointer(prefix, body);
   await target.promoteLatest(pointer);
 
+  // The release directory is content-addressed, so its URL moves whenever the
+  // release does — a viewer change is enough. The forwarding page at the
+  // publish root is what stays put, so there is a link worth sharing.
+  //
+  // The page reads the pointer in the browser, so its bytes depend only on the
+  // prefix. Every publish writes the same page, and nothing can drift out of
+  // step with the pointer because the page holds no release of its own.
+  const entryHtml = entryPointHtml(targetDoc.prefix ?? null);
+  const entryWritten = await target.promoteEntryPoint(entryHtml);
+  // The same page at `<prefix>/` as well, so the bare URL resolves on a store
+  // that serves keys. Where it is not written the `index.html` above still is,
+  // which is the name every static host agrees on.
+  const aliasWritten = entryWritten ? await target.promoteEntryAlias(entryHtml) : false;
+
   const publicBase = targetDoc.public_base_url?.replace(/\/$/, "") ?? null;
   const dashboardUrl = publicBase ? `${publicBase}/${prefix}/index.html` : null;
+  // The bare form once the directory key exists: a store that serves keys
+  // finds it there, and a host that resolves directories finds index.html by
+  // itself. Without that key only the explicit name is safe to hand out.
+  const entryUrl = publicBase
+    ? `${publicBase}/${base}${aliasWritten ? "" : "index.html"}`
+    : null;
   // verifyFiles proved the bytes are in the bucket. It says nothing about the
   // URL handed back: a base URL naming a different bucket, a bucket with public
   // access off, or an endpoint that folded the bucket into every key all pass
@@ -185,6 +206,8 @@ export async function publishRelease(
     release_prefix: prefix,
     latest_url: publicBase ? `${publicBase}/${base}latest.json` : null,
     dashboard_url: dashboardUrl,
+    entry_url: entryWritten ? entryUrl : null,
+    entry_point_written: entryWritten,
     files_uploaded: files.length + referenced.length,
     datasets_referenced: referenced.map((r) => r.path),
     promoted: true,

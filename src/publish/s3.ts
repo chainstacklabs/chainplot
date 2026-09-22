@@ -9,6 +9,7 @@ import { createHash } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import type { LatestPointer, PublishTarget } from "./target.js";
+import { ENTRY_POINT_MARKER } from "./entryPoint.js";
 import { CONTENT_TYPES } from "./serve.js";
 import { commandError } from "../plan/errors.js";
 
@@ -62,13 +63,28 @@ export function s3EnvFromProcess(
 }
 
 export const LATEST_KEY = "latest.json";
+const ENTRY_POINT_KEY = "index.html";
+/**
+ * Revalidate rather than reuse.
+ *
+ * The pointer changes on every publish and the page is what reads it, so a
+ * cache that serves either without asking makes the stable URL show an older
+ * release — the one thing it exists to prevent. `no-cache` still allows a
+ * conditional request, so the usual answer is a 304 and almost no traffic.
+ */
+const MUST_REVALIDATE = "no-cache, must-revalidate";
 
 // Minimal storage surface so unit tests can mock without the AWS SDK.
 export interface S3Ops {
   put(
     key: string,
     body: string | Uint8Array,
-    conditions?: { ifMatch?: string; ifNoneMatch?: string; contentType?: string },
+    conditions?: {
+      ifMatch?: string;
+      ifNoneMatch?: string;
+      contentType?: string;
+      cacheControl?: string;
+    },
   ): Promise<{ etag: string }>;
   get(key: string): Promise<{ body: Buffer; etag: string } | null>;
   head(key: string): Promise<{ size: number; etag: string } | null>;
@@ -94,6 +110,7 @@ export function makeS3Ops(env: S3TargetEnv): S3Ops {
         IfMatch?: string;
         IfNoneMatch?: string;
         ContentType?: string;
+        CacheControl?: string;
       } = {
         Bucket: env.bucket,
         Key: key,
@@ -105,6 +122,9 @@ export function makeS3Ops(env: S3TargetEnv): S3Ops {
       }
       if (conditions?.contentType !== undefined) {
         input.ContentType = conditions.contentType;
+      }
+      if (conditions?.cacheControl !== undefined) {
+        input.CacheControl = conditions.cacheControl;
       }
       try {
         const out = await client.send(new PutObjectCommand(input));
@@ -147,11 +167,24 @@ function isNotFound(err: unknown): boolean {
   return name === "NotFound" || name === "NoSuchKey" || status === 404;
 }
 
+/**
+ * Did a conditional write lose its race?
+ *
+ * Two shapes answer yes, and a caller that recovers from the race has to
+ * accept both. `makeS3Ops` maps the SDK's 412 to a `policy_refused`
+ * `CommandError` so a caller that simply lets it escape reports something a
+ * reader can act on; that mapping is what an `S3Target` method actually
+ * catches. The raw SDK shape still arrives from an injected `ops`. Knowing
+ * that here, once, is what keeps a recovery path from being correct against a
+ * test double and wrong against the bucket.
+ */
 function isPreconditionFailed(err: unknown): boolean {
   const status = (err as { $metadata?: { httpStatusCode?: number } })?.$metadata
     ?.httpStatusCode;
   const name = (err as { name?: string })?.name;
-  return status === 412 || name === "PreconditionFailed";
+  if (status === 412 || name === "PreconditionFailed") return true;
+  // Within one conditional `put`, `policy_refused` has no other source.
+  return (err as { code?: string })?.code === "policy_refused";
 }
 
 function mapS3Error(err: unknown): unknown {
@@ -188,6 +221,72 @@ export class S3Target implements PublishTarget {
   /** The pointer key, namespaced when the target declares a prefix. */
   private latestKey(): string {
     return this.keyPrefix ? `${this.keyPrefix}/${LATEST_KEY}` : LATEST_KEY;
+  }
+
+  private entryPointKey(): string {
+    return this.keyPrefix ? `${this.keyPrefix}/${ENTRY_POINT_KEY}` : ENTRY_POINT_KEY;
+  }
+
+  /**
+   * The same page again at `<prefix>/`.
+   *
+   * An object store serves keys, so the bare directory URL only resolves if a
+   * key of that exact name exists; a host that does resolve directories finds
+   * `index.html` regardless, which makes this inert rather than wrong there.
+   * Writing it travels with the bucket, unlike a rewrite rule configured at
+   * whichever CDN happens to be in front of it today.
+   */
+  async promoteEntryAlias(html: string): Promise<boolean> {
+    if (!this.keyPrefix) return false;
+    const key = `${this.keyPrefix}/`;
+    try {
+      const existing = await this.ops.get(key);
+      if (existing && !existing.body.toString("utf8").includes(ENTRY_POINT_MARKER)) {
+        return false;
+      }
+      await this.ops.put(key, html, {
+        contentType: "text/html; charset=utf-8",
+        cacheControl: MUST_REVALIDATE,
+        ...(existing ? { ifMatch: existing.etag } : { ifNoneMatch: "*" }),
+      });
+      return true;
+    } catch (err) {
+      if (isPreconditionFailed(err)) {
+        const now = await this.ops.get(key);
+        return now !== null && now.body.toString("utf8").includes(ENTRY_POINT_MARKER);
+      }
+      // A store that will not take a key ending in a separator simply does
+      // not get the tidier URL. It is not a reason to fail a publish.
+      return false;
+    }
+  }
+
+  async promoteEntryPoint(html: string): Promise<boolean> {
+    const key = this.entryPointKey();
+    const existing = await this.ops.get(key);
+    if (existing && !existing.body.toString("utf8").includes(ENTRY_POINT_MARKER)) {
+      return false;
+    }
+    // Conditional, because reading and then writing is not one step: a site's
+    // own index.html can appear between the two, and an unconditional put
+    // would erase it. `If-None-Match` claims the key only if it is still
+    // free; `If-Match` replaces only the page we just read.
+    try {
+      await this.ops.put(key, html, {
+        contentType: "text/html; charset=utf-8",
+        cacheControl: MUST_REVALIDATE,
+        ...(existing ? { ifMatch: existing.etag } : { ifNoneMatch: "*" }),
+      });
+    } catch (err) {
+      if (!isPreconditionFailed(err)) throw err;
+      // Someone wrote the key between the read and the write. If it was
+      // another chainplot publisher the entry point exists and is correct —
+      // the page names no release, so theirs and ours are the same bytes.
+      // Only a foreign page means there is no entry point to report.
+      const now = await this.ops.get(key);
+      return now !== null && now.body.toString("utf8").includes(ENTRY_POINT_MARKER);
+    }
+    return true;
   }
 
   async uploadFiles(
@@ -263,15 +362,16 @@ export class S3Target implements PublishTarget {
         await this.ops.put(this.latestKey(), body, {
           ifMatch: this.lastPointerETag ?? undefined,
           contentType: "application/json",
+          cacheControl: MUST_REVALIDATE,
         });
       } else {
         await this.ops.put(this.latestKey(), body, {
           ifNoneMatch: "*",
           contentType: "application/json",
+          cacheControl: MUST_REVALIDATE,
         });
       }
     } catch (err) {
-      if ((err as { code?: string }).code === "policy_refused") throw err;
       if (isPreconditionFailed(err)) {
         throw commandError(
           "policy_refused",
