@@ -9,6 +9,7 @@ import {
 } from "../../src/publish/entryPoint.js";
 import { DirectoryTarget } from "../../src/publish/directory.js";
 import { S3Target, type S3Ops } from "../../src/publish/s3.js";
+import { commandError } from "../../src/plan/errors.js";
 
 function tmp(): string {
   return fs.mkdtempSync(path.join(os.tmpdir(), "chainplot-entry-"));
@@ -23,18 +24,41 @@ function preconditionError(): Error & { $metadata: { httpStatusCode: number } } 
   return err;
 }
 
-function mockOps(): S3Ops & { keys(): string[]; cacheOf(key: string): string | undefined } {
+/**
+ * What a refused conditional write actually looks like to an `S3Target`.
+ *
+ * `makeS3Ops` maps the SDK's 412 to this before any target method sees it, so
+ * a recovery path tested only against the raw shape above is tested against a
+ * case that the bucket never produces.
+ */
+function mappedPreconditionError(): unknown {
+  return commandError(
+    "policy_refused",
+    "conditional write refused (412): another writer changed the object concurrently",
+    { retryable: false, suggested_next: "re-read latest.json and retry" },
+  );
+}
+
+/** Both shapes, for the paths that have to survive either. */
+const REFUSALS: [string, () => unknown][] = [
+  ["the SDK's 412", preconditionError],
+  ["the mapped policy_refused", mappedPreconditionError],
+];
+
+function mockOps(
+  refuse: () => unknown = preconditionError,
+): S3Ops & { keys(): string[]; cacheOf(key: string): string | undefined } {
   const store = new Map<string, { body: string; etag: string; cache?: string }>();
   let counter = 0;
   return {
     async put(key, body, conditions) {
       const existing = store.get(key);
-      if (conditions?.ifNoneMatch === "*" && existing) throw preconditionError();
+      if (conditions?.ifNoneMatch === "*" && existing) throw refuse();
       if (
         conditions?.ifMatch !== undefined &&
         (!existing || existing.etag !== conditions.ifMatch)
       ) {
-        throw preconditionError();
+        throw refuse();
       }
       const etag = `"e${++counter}"`;
       store.set(key, {
@@ -270,21 +294,24 @@ describe("S3Target.promoteEntryPoint", () => {
 
   // Losing to another chainplot publisher is not a failure: the page names no
   // release, so their bytes are ours. Reporting no entry point would be wrong.
-  it("reports success when the publisher that beat us was also chainplot", async () => {
-    const ops = mockOps();
-    const bare = ops.get.bind(ops);
-    let first = true;
-    ops.get = async (key: string) => {
-      const result = await bare(key);
-      if (first) {
-        first = false;
-        await ops.put(key, entryPointHtml(null), {});
-      }
-      return result;
-    };
-    const target = new S3Target(ENV, ops, "");
-    expect(await target.promoteEntryPoint(entryPointHtml(null))).toBe(true);
-  });
+  it.each(REFUSALS)(
+    "reports success when the publisher that beat us was also chainplot (%s)",
+    async (_shape, refuse) => {
+      const ops = mockOps(refuse);
+      const bare = ops.get.bind(ops);
+      let first = true;
+      ops.get = async (key: string) => {
+        const result = await bare(key);
+        if (first) {
+          first = false;
+          await ops.put(key, entryPointHtml(null), {});
+        }
+        return result;
+      };
+      const target = new S3Target(ENV, ops, "");
+      expect(await target.promoteEntryPoint(entryPointHtml(null))).toBe(true);
+    },
+  );
 
   // A cached pointer or page is exactly the staleness the stable URL exists
   // to prevent, so both are written with a revalidate directive.
@@ -330,6 +357,28 @@ describe("promoteEntryAlias", () => {
     const stored = await ops.get("p/");
     expect(stored?.body.toString("utf8")).toBe("<html>someone else's site</html>");
   });
+
+  // Same race as the index.html key, same answer: their page is our page.
+  // Returning false here would downgrade entry_url to the explicit name for a
+  // bare URL that does in fact resolve.
+  it.each(REFUSALS)(
+    "reports success when another chainplot publisher claimed the key first (%s)",
+    async (_shape, refuse) => {
+      const ops = mockOps(refuse);
+      const bare = ops.get.bind(ops);
+      let first = true;
+      ops.get = async (key: string) => {
+        const result = await bare(key);
+        if (first) {
+          first = false;
+          await ops.put(key, entryPointHtml("p"), {});
+        }
+        return result;
+      };
+      const target = new S3Target(ENV, ops, "p");
+      expect(await target.promoteEntryAlias(entryPointHtml("p"))).toBe(true);
+    },
+  );
 
   // A store that refuses a key ending in a separator simply does not get the
   // tidier URL; index.html is already written and publishing must not fail.

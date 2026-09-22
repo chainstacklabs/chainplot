@@ -268,9 +268,12 @@ serves keys and nothing else, so it needs a key of that exact name. Writing
 both means the same link works either way, and it travels with the bucket
 rather than living in a rewrite rule at whichever CDN is in front of it.
 
-A target publishing to the bucket root has no directory key to write, and no
-filesystem allows a file named `<prefix>/`, so `directory` targets and
-prefix-less ones report the explicit `index.html` URL instead.
+The second write is the optional one. A target publishing to the bucket root
+has no directory key to write, no filesystem allows a file named `<prefix>/`,
+a store may refuse a key ending in a separator, and a foreign object already
+sitting there is left alone. Whenever it does not happen, `index.html` is
+still written and `entry_url` names it explicitly, so the link handed back
+always resolves.
 
 `publish` returns it as `entry_url`. If an `index.html` is already at that key
 and chainplot did not write it, it is left alone and `entry_point_written`

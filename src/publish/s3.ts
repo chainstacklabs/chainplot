@@ -167,11 +167,24 @@ function isNotFound(err: unknown): boolean {
   return name === "NotFound" || name === "NoSuchKey" || status === 404;
 }
 
+/**
+ * Did a conditional write lose its race?
+ *
+ * Two shapes answer yes, and a caller that recovers from the race has to
+ * accept both. `makeS3Ops` maps the SDK's 412 to a `policy_refused`
+ * `CommandError` so a caller that simply lets it escape reports something a
+ * reader can act on; that mapping is what an `S3Target` method actually
+ * catches. The raw SDK shape still arrives from an injected `ops`. Knowing
+ * that here, once, is what keeps a recovery path from being correct against a
+ * test double and wrong against the bucket.
+ */
 function isPreconditionFailed(err: unknown): boolean {
   const status = (err as { $metadata?: { httpStatusCode?: number } })?.$metadata
     ?.httpStatusCode;
   const name = (err as { name?: string })?.name;
-  return status === 412 || name === "PreconditionFailed";
+  if (status === 412 || name === "PreconditionFailed") return true;
+  // Within one conditional `put`, `policy_refused` has no other source.
+  return (err as { code?: string })?.code === "policy_refused";
 }
 
 function mapS3Error(err: unknown): unknown {
@@ -359,7 +372,6 @@ export class S3Target implements PublishTarget {
         });
       }
     } catch (err) {
-      if ((err as { code?: string }).code === "policy_refused") throw err;
       if (isPreconditionFailed(err)) {
         throw commandError(
           "policy_refused",
