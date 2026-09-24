@@ -300,8 +300,9 @@ with test evidence — including where a criterion was previously asserted too
 generously — is in [`docs/acceptance.md`](docs/acceptance.md).
 
 Requires Node 22+ and pnpm. Ingest additionally needs Docker, an archive RPC
-endpoint, and Postgres 16. Once dependencies are installed, everything else
-runs offline.
+endpoint, and Postgres 16. Once dependencies are installed, building,
+querying and serving run offline; publishing to a remote target and forking
+from a URL need the network.
 
 ## Development
 
