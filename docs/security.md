@@ -88,5 +88,6 @@ run, by this call.
 
 ## Reporting
 
-Chainplot is an internal tool. Raise anything you find in the repo's issue
-tracker, or directly with the maintainers if it is exploitable.
+Report a vulnerability privately through GitHub: the repository's Security
+tab → Report a vulnerability. Please do not open a public issue for anything
+exploitable. Everything else is welcome in the issue tracker.

@@ -192,8 +192,7 @@ Opt in with `--mode dataset_included`, or `policy.release_mode` in the project
 The 100 MiB cap applies only to the copied dataset, so it never limits the
 dashboard, and the default never trips it. A project whose parquet is larger than that publishes an identical
 page with `--mode results_only`; what you give up is the ability for someone
-forking it to recompute your numbers from source data, which is why the
-default keeps the data in.
+forking it to recompute your numbers from source data.
 
 ## Fork a published release
 
@@ -301,7 +300,8 @@ with test evidence — including where a criterion was previously asserted too
 generously — is in [`docs/acceptance.md`](docs/acceptance.md).
 
 Requires Node 22+ and pnpm. Ingest additionally needs Docker, an archive RPC
-endpoint, and Postgres 16; everything else runs offline.
+endpoint, and Postgres 16. Once dependencies are installed, everything else
+runs offline.
 
 ## Development
 
