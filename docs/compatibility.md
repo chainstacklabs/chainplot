@@ -50,14 +50,14 @@ Full static build on `main`: SELECT model graph (topo order, cycles refused at
 `validate`, SELECT-only enforced in the isolated worker), extended `build`
 (full §16.1 layout minus `latest.json`: `index.html`, `assets/`,
 `dashboards/`, `results/`, `datasets/<id>/{manifest.json,tables/*.parquet}`,
-`source/` allowlist), viewer bundle (React + Vite + ECharts, committed under
-`viewer/dist/`, no CDN), `serve` (127.0.0.1 by default, `--host` to change), `plan --intent build`
+`source/` allowlist), viewer bundle (React + Vite + ECharts, built into
+`viewer/dist/` by `pnpm build` and not committed, no CDN), `serve` (127.0.0.1 by default, `--host` to change), `plan --intent build`
 (no RPC). A2 + A9 groundwork pass offline.
 
 | Piece | Pin |
 | --- | --- |
 | viewer deps | react 19, echarts 6, vite 7 (`viewer/package.json`, own lockfile) |
-| viewer bundle | committed `viewer/dist/`; rebuild with `pnpm --dir viewer build` |
+| viewer bundle | built into `viewer/dist/` by `pnpm build`, not committed; `build` refuses to run without it |
 | release id | `local-<ts>` staged then renamed to `dist/releases/local` (M4 adds real ids + `latest.json`) |
 
 Notes:

@@ -107,7 +107,24 @@
                 "type": "array",
                 "items": { "type": "string" }
               },
-              "unit": { "type": "string", "maxLength": 16 }
+              "unit": { "type": "string", "maxLength": 16 },
+              "columns": {
+                "description": "Per-column presentation, keyed by the column name the query returns.",
+                "type": "object",
+                "additionalProperties": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "label": { "description": "Header text, in place of the column name.", "type": "string", "maxLength": 60 },
+                    "description": { "description": "Shown when hovering the header.", "type": "string", "maxLength": 240 },
+                    "kind": {
+                      "description": "What the values are. address, tx and block link to the chain's explorer_url. Left out, a 20-byte hex value is read as an address, a column named tx_hash as a transaction and one named block_number as a block; text turns that off.",
+                      "enum": ["address", "tx", "block", "text"]
+                    },
+                    "full": { "description": "Show hex values in full instead of shortened. Long hashes widen the table.", "type": "boolean" }
+                  }
+                }
+              }
             }
           }
         }
@@ -132,6 +149,12 @@
         "id": { "type": "string" },
         "chain_id": { "type": "integer" },
         "rpc_secret": { "type": "string" },
+        "explorer_url": {
+          "description": "Block explorer base URL, without a trailing slash. Table cells holding addresses, transactions and blocks link to <url>/address/<a>, <url>/tx/<hash> and <url>/block/<n>, the Etherscan and Blockscout layout.",
+          "type": "string",
+          "pattern": "^https?://[^\\s]+[^/\\s]$",
+          "maxLength": 200
+        },
         "finality": {
           "oneOf": [
             { "type": "object", "additionalProperties": false, "required": ["policy"],

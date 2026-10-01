@@ -208,8 +208,46 @@ body {
   grid-column: 1 / -1;
 }
 
+/* A KPI beside a table or chart keeps its own height instead of growing to
+   its row-mate's, which left the number at the foot of an empty card. */
+.panel.natural-height {
+  align-self: start;
+}
+
 .panel-head {
   margin-bottom: 0.85rem;
+}
+
+.panel-title {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.panel-actions {
+  display: flex;
+  gap: 0.5rem;
+  flex-shrink: 0;
+}
+
+.panel-actions a,
+.panel-actions button {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--text-tertiary);
+  font: inherit;
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.panel-actions a:hover,
+.panel-actions button:hover {
+  color: var(--blue-brand);
 }
 
 .panel-head h3 {
@@ -334,10 +372,78 @@ table.data-table td.text {
   color: var(--text-secondary);
 }
 
-table.data-table th.raw button::after {
-  content: "·";
-  margin-left: 0.3rem;
+/* A header with something to say on hover is underlined, the way an <abbr>
+   is, so the tooltip can be found without a legend. */
+table.data-table th button.has-help .header-text {
+  text-decoration: underline dotted var(--text-tertiary);
+  text-underline-offset: 3px;
+  cursor: help;
+}
+
+/* ---- values with an explorer page or a hex body ---- */
+
+.value {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.value a {
   color: var(--blue-brand);
+  text-decoration: none;
+}
+
+.value a:hover {
+  text-decoration: underline;
+}
+
+.copy {
+  padding: 0 0.2rem;
+  border: 0;
+  border-radius: var(--radius-xs);
+  background: none;
+  color: var(--text-tertiary);
+  font: inherit;
+  line-height: 1.2;
+  cursor: pointer;
+  /* Out of the way until the row is pointed at, but still reachable by
+     keyboard: focus shows it as well. */
+  opacity: 0;
+}
+
+tr:hover .copy,
+.copy:focus-visible,
+.copy.copied {
+  opacity: 1;
+}
+
+.copy:hover {
+  color: var(--blue-brand);
+  background: var(--info-surface);
+}
+
+.copy.copied {
+  color: var(--success-contrast);
+}
+
+/* ---- table filter ---- */
+
+.table-filter {
+  align-self: flex-start;
+  width: min(18rem, 100%);
+  margin-bottom: 0.6rem;
+  padding: 0.35rem 0.6rem;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-s);
+  background: var(--bg-elevated);
+  color: var(--text-primary);
+  font: inherit;
+  font-size: 0.8125rem;
+}
+
+.table-filter:focus {
+  outline: none;
+  border-color: var(--blue-brand);
 }
 
 /* ---- charts, states, footer ---- */

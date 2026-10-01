@@ -291,3 +291,163 @@ export function rowWindow(
   // been measured; render the overscan rather than nothing.
   return { virtual: true, first, last: Math.max(last, first + opts.overscan) };
 }
+
+// ---- column presentation -------------------------------------------------
+
+/** Per-column presentation a panel declares, keyed by column name. */
+export interface PanelColumn {
+  label?: string;
+  description?: string;
+  kind?: ColumnKind;
+  full?: boolean;
+}
+
+/** What a column's values are: something with an explorer page, or text. */
+export type ColumnKind = "address" | "tx" | "block" | "text";
+
+const ADDRESS = /^0x[0-9a-fA-F]{40}$/;
+const HASH = /^0x[0-9a-fA-F]{64}$/;
+const BLOCK = /^\d+$/;
+
+/** Column names that mean the same thing in every project rindexer writes. */
+const NAMED_KINDS: Record<string, ColumnKind> = {
+  tx_hash: "tx",
+  transaction_hash: "tx",
+  block_number: "block",
+};
+
+/**
+ * What a column holds. A declared kind wins; then the conventional names; then
+ * the values, but only for addresses: a 32-byte hex value may be a transaction
+ * or any bytes32 id, so it is never linked as one by guesswork.
+ */
+export function columnKind(
+  column: ColumnMeta,
+  presentation: PanelColumn | undefined,
+  values: readonly unknown[] = [],
+): ColumnKind {
+  if (presentation?.kind) return presentation.kind;
+  const named = NAMED_KINDS[column.name.toLowerCase()];
+  if (named) return named;
+  let seen = 0;
+  for (const value of values) {
+    if (value === null || value === undefined) continue;
+    if (typeof value !== "string" || !ADDRESS.test(value)) return "text";
+    seen += 1;
+  }
+  return seen > 0 ? "address" : "text";
+}
+
+// Validation already holds a project's explorer_url to http(s), but the viewer
+// reads whatever dashboard JSON it is served, so it checks again: a
+// `javascript:` base would otherwise become a clickable script.
+const WEB_BASE = /^https?:\/\/[^\s"'<>]+$/;
+
+/** The explorer page for one value, or null when the value is not that kind. */
+export function explorerHref(
+  base: string | null | undefined,
+  kind: ColumnKind,
+  value: unknown,
+): string | null {
+  if (!base || !WEB_BASE.test(base) || value === null || value === undefined) return null;
+  const text = String(value);
+  if (kind === "address" && ADDRESS.test(text)) return `${base}/address/${text}`;
+  if (kind === "tx" && HASH.test(text)) return `${base}/tx/${text}`;
+  if (kind === "block" && BLOCK.test(text)) return `${base}/block/${text}`;
+  return null;
+}
+
+/** Header text: the panel's label, then the amount label, then the name. */
+export function headerLabel(column: ColumnMeta, presentation?: PanelColumn): string {
+  return presentation?.label ?? columnLabel(column);
+}
+
+/**
+ * What hovering a header explains. A raw amount says what its figures are,
+ * since the rounding is otherwise invisible.
+ */
+export function headerHelp(column: ColumnMeta, presentation?: PanelColumn): string | null {
+  if (presentation?.description) return presentation.description;
+  if (column.raw_amount) {
+    const scale = column.decimals ? `, scaled by ${column.decimals} decimals` : "";
+    return `Exact onchain amount${scale}. Hover a value for every digit.`;
+  }
+  return null;
+}
+
+// ---- table filter and export ---------------------------------------------
+
+/** Whether any cell of a row contains the needle, ignoring case. */
+export function rowMatches(row: readonly unknown[], columns: readonly number[], needle: string): boolean {
+  const lowered = needle.trim().toLowerCase();
+  if (!lowered) return true;
+  return columns.some((index) => {
+    const value = row[index];
+    return value !== null && value !== undefined && String(value).toLowerCase().includes(lowered);
+  });
+}
+
+function csvField(value: unknown): string {
+  if (value === null || value === undefined) return "";
+  const text = String(value);
+  return /[",\r\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
+}
+
+/**
+ * RFC 4180 CSV of exactly what the result holds: column names as the query
+ * returned them and raw values, never the display rounding.
+ */
+export function toCsv(
+  columns: readonly ColumnMeta[],
+  rows: readonly (readonly unknown[])[],
+  visible: readonly number[],
+): string {
+  const lines = [visible.map((index) => csvField(columns[index]?.name)).join(",")];
+  for (const row of rows) {
+    lines.push(visible.map((index) => csvField(row[index])).join(","));
+  }
+  return `${lines.join("\r\n")}\r\n`;
+}
+
+// ---- layout ----------------------------------------------------------------
+
+/**
+ * Which KPI panels should keep their natural height. The two-column grid
+ * stretches cards in a row to one height, which levels two KPIs side by side
+ * but leaves a KPI beside a table as a tall card with its number at the
+ * bottom. So a KPI stands alone exactly when its row-mate is something else.
+ */
+export function kpiStandsAlone(
+  panels: readonly { chart: string; span?: "half" | "full" }[],
+): boolean[] {
+  const alone = panels.map(() => false);
+  let open: number | null = null; // index of a half panel waiting for a row-mate
+  panels.forEach((panel, index) => {
+    if (panel.span === "full") {
+      open = null;
+      return;
+    }
+    if (open === null) {
+      open = index;
+      return;
+    }
+    const mate = panels[open]!;
+    if ((mate.chart === "kpi") !== (panel.chart === "kpi")) {
+      alone[mate.chart === "kpi" ? open : index] = true;
+    }
+    open = null;
+  });
+  return alone;
+}
+
+/**
+ * A panel's SQL link, only when it points into the release's own source
+ * bundle. Anything else — another origin, a scheme, a climb out with `..` —
+ * is dropped rather than linked.
+ */
+export function sqlHref(path: string | null | undefined): string | null {
+  if (!path) return null;
+  return /^source\/[A-Za-z0-9._\/-]+\.sql$/.test(path) && !path.split("/").includes("..")
+    ? path
+    : null;
+}

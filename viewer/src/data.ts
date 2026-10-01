@@ -1,6 +1,6 @@
-import type { ColumnMeta } from "./format.js";
+import type { ColumnMeta, PanelColumn } from "./format.js";
 
-export type { ColumnMeta };
+export type { ColumnMeta, PanelColumn };
 
 export interface QueryResultDoc {
   schema_version: number;
@@ -49,6 +49,9 @@ export interface DashboardPanelDoc {
   span?: "half" | "full";
   hide_columns?: string[];
   unit?: string;
+  columns?: Record<string, PanelColumn>;
+  /** Release-relative path of the query's SQL, when the source bundle has it. */
+  sql?: string | null;
 }
 
 export interface DashboardDoc {
@@ -56,6 +59,8 @@ export interface DashboardDoc {
   dashboard_id: string;
   title: string;
   description?: string | null;
+  /** Block explorer base URL; null or absent when the project declares none. */
+  explorer_url?: string | null;
   panels: DashboardPanelDoc[];
 }
 

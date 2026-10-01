@@ -51,6 +51,9 @@ describe("build", () => {
       fs.readFileSync(path.join(dist, "dashboards/overview.json"), "utf8"),
     );
     expect(dash.title).toBe("Amounts");
+    // Each panel links to its SQL in the source bundle; no chain, no explorer.
+    expect(dash.panels[0].sql).toBe("source/queries/raw_amounts.sql");
+    expect(dash.explorer_url).toBeNull();
 
     const raw = JSON.parse(
       fs.readFileSync(path.join(dist, "results/raw_amounts.json"), "utf8"),
@@ -62,6 +65,80 @@ describe("build", () => {
     // source/ allowlist: no secrets, no work dirs
     expect(fs.existsSync(path.join(dist, "source/.env"))).toBe(false);
     expect(fs.existsSync(path.join(dist, "source/.chainplot"))).toBe(false);
+  });
+
+  // An ingest project may declare a snapshot that `apply` does not write — a
+  // lookup table a script fills in afterwards. Validation lets it through,
+  // since ingest snapshots appear at apply time, and the build used to fail on
+  // it with an internal error carrying the stat call's ENOENT.
+  it("names a dataset whose snapshot is missing", async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "chainplot-build-missing-"));
+    fs.cpSync(template, dir, { recursive: true });
+    fs.mkdirSync(path.join(dir, "abis"));
+    fs.writeFileSync(
+      path.join(dir, "abis/ERC20.json"),
+      JSON.stringify([
+        {
+          type: "event",
+          name: "Transfer",
+          anonymous: false,
+          inputs: [
+            { name: "from", type: "address", indexed: true },
+            { name: "to", type: "address", indexed: true },
+            { name: "value", type: "uint256", indexed: false },
+          ],
+        },
+      ]),
+    );
+    const yaml = path.join(dir, "chainplot.yaml");
+    fs.writeFileSync(
+      yaml,
+      fs
+        .readFileSync(yaml, "utf8")
+        .replace(
+          "datasets:\n",
+          [
+            "chain_sources:",
+            "  - { id: mainnet, chain_id: 1, rpc_secret: RPC_URL, finality: { policy: finalized } }",
+            "event_sources:",
+            "  - id: usdc",
+            "    chain: mainnet",
+            '    addresses: ["0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48"]',
+            "    abi: abis/ERC20.json",
+            "    events: [Transfer]",
+            "    start_block: 100",
+            "    end: { mode: pinned, block: 110 }",
+            "datasets:",
+            "  - id: lookups",
+            "    snapshot: .chainplot/lookups/blocks.parquet",
+            "",
+          ].join("\n"),
+        ),
+    );
+    fs.mkdirSync(path.join(dir, ".chainplot"));
+    fs.writeFileSync(
+      path.join(dir, ".chainplot/coverage.json"),
+      JSON.stringify({
+        schema_version: 1,
+        chain_id: 1,
+        sources: [
+          {
+            source_id: "usdc",
+            segments: [{ start_block: 100, end_block: 110, status: "complete_empty", row_count: 0 }],
+          },
+        ],
+      }),
+    );
+
+    const result = await runCliJson(["build", "--json"], dir);
+    expect(result.ok).toBe(false);
+    expect(result.error).toMatchObject({
+      code: "validation",
+      resource_id: "lookups",
+      pointer: "/datasets/0/snapshot",
+    });
+    expect(result.error?.message).toContain(".chainplot/lookups/blocks.parquet");
+    expect(result.error?.suggested_next).toBeTruthy();
   });
 });
 
