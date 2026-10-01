@@ -50,6 +50,17 @@ the statement count, so `SELECT 1; DROP TABLE t` is refused as two statements
 rather than passing a check aimed at the first. The statement is parsed, not
 run, by this call.
 
+### Links the viewer renders
+
+A dashboard turns project-supplied strings into links: `explorer_url` on a
+chain source, and each panel's SQL path. Validation holds `explorer_url` to
+`http(s)://`, and the viewer checks again on what it is actually served, since
+a release's JSON can be edited after the build: an explorer base that is not
+http(s) produces no link, and a SQL path renders only when it stays inside the
+release's `source/` directory. Cell values reach a link only after matching
+the shape their kind requires (20-byte address, 32-byte hash, decimal block),
+so a value cannot carry markup or a scheme into an `href`.
+
 ## What is *not* defended
 
 - **Authenticity of a published release.** `release.json` lists a SHA-256 for

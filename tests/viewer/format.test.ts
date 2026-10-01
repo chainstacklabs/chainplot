@@ -10,6 +10,7 @@ import {
   headerLabel,
   kpiStandsAlone,
   rowMatches,
+  sqlHref,
   toCsv,
   isNumericColumn,
   formatCell,
@@ -408,6 +409,22 @@ describe("explorerHref", () => {
     expect(explorerHref(base, "block", "0x10")).toBeNull();
     expect(explorerHref(base, "text", ADDR)).toBeNull();
     expect(explorerHref(null, "address", ADDR)).toBeNull();
+  });
+
+  it("links only from a web base, whatever the dashboard JSON says", () => {
+    expect(explorerHref("javascript:alert(1)//", "address", ADDR)).toBeNull();
+    expect(explorerHref("data:text/html,x", "block", "1")).toBeNull();
+  });
+});
+
+describe("sqlHref", () => {
+  it("keeps a path into the source bundle and drops anything else", () => {
+    expect(sqlHref("source/queries/top.sql")).toBe("source/queries/top.sql");
+    expect(sqlHref("source/../release.json")).toBeNull();
+    expect(sqlHref("source/queries/../../x.sql")).toBeNull();
+    expect(sqlHref("https://elsewhere.example/q.sql")).toBeNull();
+    expect(sqlHref("javascript:alert(1)//.sql")).toBeNull();
+    expect(sqlHref(null)).toBeNull();
   });
 });
 

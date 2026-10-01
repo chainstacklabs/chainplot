@@ -338,13 +338,18 @@ export function columnKind(
   return seen > 0 ? "address" : "text";
 }
 
+// Validation already holds a project's explorer_url to http(s), but the viewer
+// reads whatever dashboard JSON it is served, so it checks again: a
+// `javascript:` base would otherwise become a clickable script.
+const WEB_BASE = /^https?:\/\/[^\s"'<>]+$/;
+
 /** The explorer page for one value, or null when the value is not that kind. */
 export function explorerHref(
   base: string | null | undefined,
   kind: ColumnKind,
   value: unknown,
 ): string | null {
-  if (!base || value === null || value === undefined) return null;
+  if (!base || !WEB_BASE.test(base) || value === null || value === undefined) return null;
   const text = String(value);
   if (kind === "address" && ADDRESS.test(text)) return `${base}/address/${text}`;
   if (kind === "tx" && HASH.test(text)) return `${base}/tx/${text}`;
@@ -433,4 +438,16 @@ export function kpiStandsAlone(
     open = null;
   });
   return alone;
+}
+
+/**
+ * A panel's SQL link, only when it points into the release's own source
+ * bundle. Anything else — another origin, a scheme, a climb out with `..` —
+ * is dropped rather than linked.
+ */
+export function sqlHref(path: string | null | undefined): string | null {
+  if (!path) return null;
+  return /^source\/[A-Za-z0-9._\/-]+\.sql$/.test(path) && !path.split("/").includes("..")
+    ? path
+    : null;
 }

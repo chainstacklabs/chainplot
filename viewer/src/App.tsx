@@ -21,6 +21,7 @@ import {
   relativeTime,
   rowMatches,
   rowWindow,
+  sqlHref,
   toChartNumber,
   toCsv,
   type ColumnKind,
@@ -486,11 +487,12 @@ function PanelActions({
   columns: number[];
 }) {
   const csv = result && !result.error && panel.chart !== "kpi" && result.rows.length > 0;
-  if (!panel.sql && !csv) return null;
+  const sql = sqlHref(panel.sql);
+  if (!sql && !csv) return null;
   return (
     <div className="panel-actions">
-      {panel.sql ? (
-        <a href={panel.sql} target="_blank" rel="noopener" title="The SQL behind this panel">
+      {sql ? (
+        <a href={sql} target="_blank" rel="noopener" title="The SQL behind this panel">
           SQL
         </a>
       ) : null}
