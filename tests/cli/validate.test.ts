@@ -56,6 +56,33 @@ describe("validate", () => {
     expect(result.error?.pointer).toBe("/dashboards/0/panels/0/by size");
   });
 
+  it("accepts per-column presentation and an explorer, and refuses a malformed explorer", async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "chainplot-columns-"));
+    fs.cpSync(template, dir, { recursive: true });
+    const yaml = path.join(dir, "chainplot.yaml");
+    const withChain = (explorer: string) =>
+      fs
+        .readFileSync(path.join(template, "chainplot.yaml"), "utf8")
+        .replace(
+          "datasets:\n",
+          `chain_sources:\n  - { id: mainnet, chain_id: 1, rpc_secret: RPC_URL, explorer_url: "${explorer}", finality: { policy: finalized } }\ndatasets:\n`,
+        )
+        .replace(
+          "        span: full\n",
+          '        span: full\n        columns:\n          amount: { label: Amount, description: "Signed, raw.", kind: text, full: true }\n',
+        );
+
+    fs.writeFileSync(yaml, withChain("https://etherscan.io"));
+    const ok = await runCliJson(["validate", "--json"], dir);
+    expect(ok.ok).toBe(true);
+
+    // A trailing slash would double up in every link the viewer builds.
+    fs.writeFileSync(yaml, withChain("https://etherscan.io/"));
+    const bad = await runCliJson(["validate", "--json"], dir);
+    expect(bad.ok).toBe(false);
+    expect(bad.error?.pointer).toBe("/chain_sources/0/explorer_url");
+  });
+
   it("rejects follow_finalized plus confirmation_depth", async () => {
     const result = await runCliJson(["validate", "--json"], path.join(fixtures, "follow-plus-depth"));
     expect(result.ok).toBe(false);

@@ -1,9 +1,16 @@
 import { describe, expect, it } from "vitest";
 import {
   asBigInt,
+  columnKind,
   columnLabel,
   compareValues,
   displayAmount,
+  explorerHref,
+  headerHelp,
+  headerLabel,
+  kpiStandsAlone,
+  rowMatches,
+  toCsv,
   isNumericColumn,
   formatCell,
   groupDigits,
@@ -357,5 +364,108 @@ describe("isNumericColumn", () => {
     expect(isNumericColumn(column, ["00:26:20"])).toBe(false);
     expect(isNumericColumn(column, [])).toBe(false);
     expect(isNumericColumn(column, [null, null])).toBe(false);
+  });
+});
+
+const ADDR = "0x9cf687eaca65e5da625d3fde534a73513b0a959f";
+const TX = "0xdda2c8a4868abbd3613be2bd5621746ba1441e69f93618bf3573095fd9ec1166";
+const text = (name: string) => ({ name, logical_type: "VARCHAR" });
+
+describe("columnKind", () => {
+  it("reads a column of 20-byte hex values as addresses", () => {
+    expect(columnKind(text("wallet"), undefined, [ADDR, null, ADDR])).toBe("address");
+  });
+
+  it("never guesses a 32-byte value is a transaction", () => {
+    // It may as well be a bytes32 order id; only a name or a declaration says tx.
+    expect(columnKind(text("id"), undefined, [TX])).toBe("text");
+    expect(columnKind(text("tx_hash"), undefined, [TX])).toBe("tx");
+    expect(columnKind(text("hash"), { kind: "tx" }, [TX])).toBe("tx");
+  });
+
+  it("knows block_number by name, and lets a declaration turn detection off", () => {
+    expect(columnKind({ name: "block_number", logical_type: "BIGINT" }, undefined, ["1"])).toBe("block");
+    expect(columnKind(text("wallet"), { kind: "text" }, [ADDR])).toBe("text");
+  });
+
+  it("reads a mixed or empty column as text", () => {
+    expect(columnKind(text("who"), undefined, [ADDR, "FOMO"])).toBe("text");
+    expect(columnKind(text("who"), undefined, [null])).toBe("text");
+  });
+});
+
+describe("explorerHref", () => {
+  const base = "https://explorer.example";
+
+  it("builds the Etherscan-style path for each kind", () => {
+    expect(explorerHref(base, "address", ADDR)).toBe(`${base}/address/${ADDR}`);
+    expect(explorerHref(base, "tx", TX)).toBe(`${base}/tx/${TX}`);
+    expect(explorerHref(base, "block", "76491309")).toBe(`${base}/block/76491309`);
+  });
+
+  it("refuses a value that is not the kind it claims, and works without a base", () => {
+    expect(explorerHref(base, "tx", ADDR)).toBeNull();
+    expect(explorerHref(base, "block", "0x10")).toBeNull();
+    expect(explorerHref(base, "text", ADDR)).toBeNull();
+    expect(explorerHref(null, "address", ADDR)).toBeNull();
+  });
+});
+
+describe("header label and help", () => {
+  const amount = { name: "usdg", logical_type: "VARCHAR", raw_amount: true, decimals: 6, label: "USDG" };
+
+  it("prefers the panel's label, then the amount label, then the name", () => {
+    expect(headerLabel(amount, { label: "USDG sold" })).toBe("USDG sold");
+    expect(headerLabel(amount)).toBe("USDG");
+    expect(headerLabel(text("tx_hash"))).toBe("Tx hash");
+  });
+
+  it("explains a raw amount unless the panel says something itself", () => {
+    expect(headerHelp(amount)).toContain("6 decimals");
+    expect(headerHelp(amount, { description: "What the sells fetched." })).toBe("What the sells fetched.");
+    expect(headerHelp(text("wallet"))).toBeNull();
+  });
+});
+
+describe("rowMatches", () => {
+  const row = ["VRAX 9464", ADDR, "4806"];
+
+  it("matches any visible cell, ignoring case and surrounding space", () => {
+    expect(rowMatches(row, [0, 1, 2], " vrax ")).toBe(true);
+    expect(rowMatches(row, [0, 1, 2], "0x9CF6")).toBe(true);
+    expect(rowMatches(row, [0, 2], "0x9cf6")).toBe(false);
+    expect(rowMatches(row, [0], "")).toBe(true);
+  });
+});
+
+describe("toCsv", () => {
+  it("writes exact values under the query's own column names", () => {
+    const columns = [text("token"), { name: "usdg", logical_type: "VARCHAR", raw_amount: true, decimals: 6 }];
+    const csv = toCsv(columns, [["VRAX, 9464", "813817279396"], ['say "hi"', null]], [0, 1]);
+    expect(csv).toBe('token,usdg\r\n"VRAX, 9464",813817279396\r\n"say ""hi""",\r\n');
+  });
+
+  it("leaves hidden columns out", () => {
+    expect(toCsv([text("a"), text("b")], [["1", "2"]], [1])).toBe("b\r\n2\r\n");
+  });
+});
+
+describe("kpiStandsAlone", () => {
+  it("frees a KPI from a non-KPI row-mate, and only then", () => {
+    expect(
+      kpiStandsAlone([
+        { chart: "kpi" }, { chart: "kpi" }, // level pair
+        { chart: "kpi" }, { chart: "table" }, // KPI beside a table
+        { chart: "bar", span: "full" },
+        { chart: "line" }, { chart: "kpi" }, // table-first order too
+        { chart: "kpi" }, // last, with no row-mate
+      ]),
+    ).toEqual([false, false, true, false, false, false, true, false]);
+  });
+
+  it("starts a fresh row after a full-width panel", () => {
+    expect(
+      kpiStandsAlone([{ chart: "kpi" }, { chart: "table", span: "full" }, { chart: "table" }, { chart: "kpi" }]),
+    ).toEqual([false, false, false, true]);
   });
 });

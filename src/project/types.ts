@@ -29,6 +29,15 @@ export interface Query {
 
 export type ChartKind = "line" | "bar" | "area" | "kpi" | "table";
 
+export type ColumnKind = "address" | "tx" | "block" | "text";
+
+export interface PanelColumn {
+  label?: string;
+  description?: string;
+  kind?: ColumnKind;
+  full?: boolean;
+}
+
 export interface DashboardPanel {
   query: string;
   chart: ChartKind;
@@ -37,6 +46,7 @@ export interface DashboardPanel {
   span?: "half" | "full";
   hide_columns?: string[];
   unit?: string;
+  columns?: Record<string, PanelColumn>;
 }
 
 export interface Dashboard {
@@ -61,6 +71,7 @@ export interface ChainSource {
   id: string;
   chain_id: number;
   rpc_secret: string;
+  explorer_url?: string;
   finality: Finality;
 }
 

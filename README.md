@@ -78,6 +78,7 @@ chain_sources:
   - id: mainnet
     chain_id: 1
     rpc_secret: RPC_URL          # the env var name, never the value
+    explorer_url: https://etherscan.io   # optional; links addresses, txs, blocks
     finality: { policy: finalized }
 
 event_sources:
@@ -158,6 +159,30 @@ allowlist, not an embedded plotting language.
 Display metadata never alters stored values. `decimals: 6` renders
 `983644533552` as `983,644.533552 USDC`; the exact integer stays in the result
 JSON and in the hover title.
+
+`columns` on a panel names, explains and types what a query returns:
+
+```yaml
+panels:
+  - query: largest_sells
+    chart: table
+    columns:
+      wallet: { label: Seller, description: "The wallet that sold." }
+      tx_hash: { label: Transaction, full: true }
+      order_id: { kind: text }        # a bytes32 id, not a transaction
+```
+
+`label` replaces the header text and `description` appears when hovering it; a
+header with a description is underlined. `kind` is `address`, `tx`, `block` or
+`text`. Left out, a 20-byte hex value is read as an address, a column named
+`tx_hash` as a transaction and one named `block_number` as a block. A 32-byte
+value is never guessed to be a transaction, since it may as well be any id.
+With an `explorer_url` on the chain source, those cells link to the explorer.
+Every hex cell has a copy button that copies the full value; `full: true` also
+shows it unshortened.
+
+Every panel links to the SQL behind it, tables and charts download their rows
+as CSV with exact values, and a table longer than ten rows gets a filter box.
 
 ## What a release weighs
 

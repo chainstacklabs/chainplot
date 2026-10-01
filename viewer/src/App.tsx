@@ -9,13 +9,22 @@ import {
   type ReleaseDoc,
 } from "./data.js";
 import {
-  columnLabel,
+  columnKind,
   compareValues,
+  explorerHref,
   formatCell,
+  headerHelp,
+  headerLabel,
+  isHex,
   isNumericColumn,
+  kpiStandsAlone,
   relativeTime,
+  rowMatches,
   rowWindow,
   toChartNumber,
+  toCsv,
+  type ColumnKind,
+  type PanelColumn,
 } from "./format.js";
 
 /** Where a reader learns how to rebuild a release from its dataset. */
@@ -52,14 +61,19 @@ function Chip({
   );
 }
 
+// Up to this many bars, every bar gets its label.
+const MAX_NAMED_BARS = 30;
+
 function Chart({
   result,
   kind,
   columns,
+  presentation,
 }: {
   result: QueryResultDoc;
   kind: ChartKind;
   columns: number[];
+  presentation: Record<string, PanelColumn> | undefined;
 }) {
   const [el, setEl] = useState<HTMLDivElement | null>(null);
   const instanceRef = useRef<{ dispose(): void; resize(): void } | null>(null);
@@ -79,6 +93,13 @@ function Chart({
       const [categoryIndex, ...seriesIndexes] = columns;
       if (categoryIndex === undefined) return;
       const axis = result.rows.map((row) => String(row[categoryIndex] ?? ""));
+      // A few bars are named things — tokens, wallets — and a dropped label
+      // leaves a bar nobody can identify, so all of them are shown, tilted once
+      // they would collide. Past that, the axis is a scale (a bar per day, say)
+      // and thinning its labels out is the right call, as on a line.
+      const named = kind === "bar" && axis.length <= MAX_NAMED_BARS;
+      const crowded =
+        named && axis.reduce((sum, label) => sum + label.length, 0) * 7 > el.clientWidth * 0.8;
       // cp-ui-kit border-static / text-secondary, per theme.
       const grid = dark ? "#2e3338" : "#e4ebf1";
       const text = dark ? "#8d95a5" : "#606772";
@@ -103,7 +124,16 @@ function Chart({
           data: axis,
           boundaryGap: kind === "bar",
           axisLine: { lineStyle: { color: grid } },
-          axisLabel: { color: text, hideOverlap: true },
+          axisLabel:
+            named
+              ? {
+                  color: text,
+                  interval: 0,
+                  rotate: crowded ? 35 : 0,
+                  width: crowded ? 110 : undefined,
+                  overflow: crowded ? "truncate" : undefined,
+                }
+              : { color: text, hideOverlap: true },
         },
         yAxis: {
           type: "value",
@@ -113,7 +143,7 @@ function Chart({
         series: seriesIndexes.map((index) => {
           const column = result.columns[index]!;
           return {
-            name: columnLabel(column),
+            name: headerLabel(column, presentation?.[column.name]),
             type: kind === "bar" ? "bar" : "line",
             smooth: kind !== "bar",
             showSymbol: result.rows.length <= 60,
@@ -134,9 +164,66 @@ function Chart({
       instanceRef.current?.dispose();
       instanceRef.current = null;
     };
-  }, [result, kind, columns, el]);
+  }, [result, kind, columns, presentation, el]);
 
   return <div className="chart" ref={setEl} />;
+}
+
+/** Copies the exact value; says so for a moment, so the click is not silent. */
+function CopyButton({ value }: { value: string }) {
+  const [copied, setCopied] = useState(false);
+  useEffect(() => {
+    if (!copied) return;
+    const timer = setTimeout(() => setCopied(false), 1200);
+    return () => clearTimeout(timer);
+  }, [copied]);
+  return (
+    <button
+      type="button"
+      className={`copy${copied ? " copied" : ""}`}
+      title={copied ? "Copied" : `Copy ${value}`}
+      aria-label={copied ? "Copied" : "Copy full value"}
+      onClick={() => {
+        void navigator.clipboard?.writeText(value).then(() => setCopied(true));
+      }}
+    >
+      {copied ? "✓" : "⧉"}
+    </button>
+  );
+}
+
+/**
+ * A hex value or a block: shortened unless the panel asks for it in full,
+ * always copyable whole, and linked when the project names an explorer.
+ */
+function ValueCell({
+  value,
+  text,
+  kind,
+  full,
+  explorerUrl,
+}: {
+  value: unknown;
+  text: string;
+  kind: ColumnKind;
+  full: boolean;
+  explorerUrl: string | null;
+}) {
+  const exact = String(value);
+  const shown = full && isHex(value) ? exact : text;
+  const href = explorerHref(explorerUrl, kind, value);
+  return (
+    <span className="value">
+      {href ? (
+        <a href={href} target="_blank" rel="noopener noreferrer" title={`Open ${exact} in the explorer`}>
+          {shown}
+        </a>
+      ) : (
+        <span title={shown === exact ? undefined : exact}>{shown}</span>
+      )}
+      {isHex(value) ? <CopyButton value={exact} /> : null}
+    </span>
+  );
 }
 
 // Below this, rendering every row costs nothing and avoids the measurement
@@ -148,14 +235,22 @@ const OVERSCAN = 12;
 // so this constant and the stylesheet cannot drift apart.
 const ASSUMED_ROW_HEIGHT = 33;
 
+// A table this long gets a filter box; a shorter one is read at a glance.
+const FILTER_ABOVE = 10;
+
 function DataTable({
   result,
   columns,
+  presentation,
+  explorerUrl,
 }: {
   result: QueryResultDoc;
   columns: number[];
+  presentation: Record<string, PanelColumn> | undefined;
+  explorerUrl: string | null;
 }) {
   const [sortCol, setSortCol] = useState<number | null>(null);
+  const [needle, setNeedle] = useState("");
   const [asc, setAsc] = useState(true);
   const [scrollTop, setScrollTop] = useState(0);
   const [viewport, setViewport] = useState(0);
@@ -176,15 +271,33 @@ function DataTable({
     return numeric;
   }, [columns, result]);
 
+  const kinds = useMemo(() => {
+    const out = new Map<number, ColumnKind>();
+    for (const index of columns) {
+      const column = result.columns[index];
+      if (!column) continue;
+      out.set(
+        index,
+        columnKind(column, presentation?.[column.name], result.rows.map((row) => row[index])),
+      );
+    }
+    return out;
+  }, [columns, result, presentation]);
+
+  const filtered = useMemo(
+    () => (needle ? result.rows.filter((row) => rowMatches(row, columns, needle)) : result.rows),
+    [result, columns, needle],
+  );
+
   const sorted = useMemo(() => {
-    if (sortCol === null) return result.rows;
-    const rows = [...result.rows];
+    if (sortCol === null) return filtered;
+    const rows = [...filtered];
     rows.sort((a, b) => {
       const cmp = compareValues(a[sortCol], b[sortCol]);
       return asc ? cmp : -cmp;
     });
     return rows;
-  }, [result, sortCol, asc]);
+  }, [filtered, sortCol, asc]);
 
   const virtual = sorted.length > VIRTUALIZE_ABOVE;
 
@@ -207,95 +320,121 @@ function DataTable({
   }
 
   return (
-    <div
-      className="table-scroll"
-      onScroll={
-        virtual
-          ? (event) => {
-              const el = event.currentTarget;
-              setScrollTop(el.scrollTop);
-              setViewport(el.clientHeight);
-            }
-          : undefined
-      }
-      ref={
-        virtual
-          ? (el) => {
-              if (el && viewport === 0) setViewport(el.clientHeight);
-            }
-          : undefined
-      }
-    >
-      <table className="data-table">
-        <thead>
-          <tr>
-            {columns.map((index) => {
-              const column = result.columns[index]!;
-              const active = sortCol === index;
-              return (
-                <th
-                  key={column.name}
-                  aria-sort={active ? (asc ? "ascending" : "descending") : "none"}
-                  className={
-                    numericColumns.has(index)
-                      ? column.raw_amount
-                        ? "numeric raw"
-                        : "numeric"
-                      : "text"
-                  }
-                >
-                  <button
-                    type="button"
-                    onClick={() => {
-                      if (active) setAsc(!asc);
-                      else {
-                        setSortCol(index);
-                        setAsc(true);
-                      }
-                    }}
-                  >
-                    {columnLabel(column)}
-                    <span className="sort-arrow">
-                      {active ? (asc ? "↑" : "↓") : ""}
-                    </span>
-                  </button>
-                </th>
-              );
-            })}
-          </tr>
-        </thead>
-        <tbody ref={bodyRef}>
-          {/* Spacers stand in for the rows above and below the window, so the
-              scrollbar reflects the whole result while the DOM holds a screenful. */}
-          {virtual && first > 0 ? (
-            <tr aria-hidden="true" style={{ height: first * rowHeight }} />
-          ) : null}
-          {visible.map((row, i) => (
-            <tr key={first + i} data-row="">
+    <>
+      {result.rows.length > FILTER_ABOVE ? (
+        <input
+          className="table-filter"
+          type="search"
+          placeholder={`Filter ${result.rows.length} rows`}
+          aria-label="Filter rows"
+          value={needle}
+          onChange={(event) => setNeedle(event.target.value)}
+        />
+      ) : null}
+      <div
+        className="table-scroll"
+        onScroll={
+          virtual
+            ? (event) => {
+                const el = event.currentTarget;
+                setScrollTop(el.scrollTop);
+                setViewport(el.clientHeight);
+              }
+            : undefined
+        }
+        ref={
+          virtual
+            ? (el) => {
+                if (el && viewport === 0) setViewport(el.clientHeight);
+              }
+            : undefined
+        }
+      >
+        <table className="data-table">
+          <thead>
+            <tr>
               {columns.map((index) => {
                 const column = result.columns[index]!;
-                const cell = formatCell(row[index], column);
+                const active = sortCol === index;
+                const help = headerHelp(column, presentation?.[column.name]);
                 return (
-                  <td
+                  <th
                     key={column.name}
-                    className={numericColumns.has(index) ? "numeric" : "text"}
-                    title={cell.text === cell.exact ? undefined : cell.exact}
+                    aria-sort={active ? (asc ? "ascending" : "descending") : "none"}
+                    className={
+                      numericColumns.has(index) ? "numeric" : "text"
+                    }
                   >
-                    {cell.text}
-                  </td>
+                    <button
+                      type="button"
+                      title={help ?? undefined}
+                      className={help ? "has-help" : undefined}
+                      onClick={() => {
+                        if (active) setAsc(!asc);
+                        else {
+                          setSortCol(index);
+                          setAsc(true);
+                        }
+                      }}
+                    >
+                      <span className="header-text">
+                        {headerLabel(column, presentation?.[column.name])}
+                      </span>
+                      <span className="sort-arrow">
+                        {active ? (asc ? "↑" : "↓") : ""}
+                      </span>
+                    </button>
+                  </th>
                 );
               })}
             </tr>
-          ))}
-          {virtual && last < sorted.length ? (
-            <tr
-              aria-hidden="true"
-              style={{ height: (sorted.length - last) * rowHeight }}
-            />
-          ) : null}
-        </tbody>
-      </table>
-    </div>
+          </thead>
+          <tbody ref={bodyRef}>
+            {/* Spacers stand in for the rows above and below the window, so the
+                scrollbar reflects the whole result while the DOM holds a screenful. */}
+            {virtual && first > 0 ? (
+              <tr aria-hidden="true" style={{ height: first * rowHeight }} />
+            ) : null}
+            {visible.map((row, i) => (
+              <tr key={first + i} data-row="">
+                {columns.map((index) => {
+                  const column = result.columns[index]!;
+                  const cell = formatCell(row[index], column);
+                  const kind = kinds.get(index) ?? "text";
+                  const linked = kind !== "text" || isHex(row[index]);
+                  return (
+                    <td
+                      key={column.name}
+                      className={numericColumns.has(index) ? "numeric" : "text"}
+                      title={linked || cell.text === cell.exact ? undefined : cell.exact}
+                    >
+                      {linked && row[index] !== null && row[index] !== undefined ? (
+                        <ValueCell
+                          value={row[index]}
+                          text={cell.text}
+                          kind={kind}
+                          full={presentation?.[column.name]?.full ?? false}
+                          explorerUrl={explorerUrl}
+                        />
+                      ) : (
+                        cell.text
+                      )}
+                    </td>
+                  );
+                })}
+              </tr>
+            ))}
+            {virtual && last < sorted.length ? (
+              <tr
+                aria-hidden="true"
+                style={{ height: (sorted.length - last) * rowHeight }}
+              />
+            ) : null}
+          </tbody>
+        </table>
+      </div>
+      {needle && sorted.length === 0 ? <p className="empty">No rows match “{needle}”.</p> : null}
+    </>
   );
 }
 
@@ -327,12 +466,59 @@ function Kpi({
   );
 }
 
-function Panel({
+/** Hands the browser a file built in memory, without a round trip. */
+function download(name: string, body: string, type: string): void {
+  const url = URL.createObjectURL(new Blob([body], { type }));
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = name;
+  link.click();
+  URL.revokeObjectURL(url);
+}
+
+function PanelActions({
   panel,
   result,
+  columns,
 }: {
   panel: DashboardPanelDoc;
   result: QueryResultDoc | null | undefined;
+  columns: number[];
+}) {
+  const csv = result && !result.error && panel.chart !== "kpi" && result.rows.length > 0;
+  if (!panel.sql && !csv) return null;
+  return (
+    <div className="panel-actions">
+      {panel.sql ? (
+        <a href={panel.sql} target="_blank" rel="noopener" title="The SQL behind this panel">
+          SQL
+        </a>
+      ) : null}
+      {csv ? (
+        <button
+          type="button"
+          title="Download the rows as CSV, with exact values"
+          onClick={() =>
+            download(`${panel.query}.csv`, toCsv(result.columns, result.rows, columns), "text/csv")
+          }
+        >
+          CSV
+        </button>
+      ) : null}
+    </div>
+  );
+}
+
+function Panel({
+  panel,
+  result,
+  explorerUrl,
+  standsAlone,
+}: {
+  panel: DashboardPanelDoc;
+  result: QueryResultDoc | null | undefined;
+  explorerUrl: string | null;
+  standsAlone: boolean;
 }) {
   const columns = useMemo(
     () => (result ? visibleColumns(result.columns, panel.hide_columns) : []),
@@ -358,15 +544,29 @@ function Panel({
       return <Kpi result={result} columns={columns} unit={panel.unit} />;
     }
     if (panel.chart === "table") {
-      return <DataTable result={result} columns={columns} />;
+      return (
+        <DataTable
+          result={result}
+          columns={columns}
+          presentation={panel.columns}
+          explorerUrl={explorerUrl}
+        />
+      );
     }
-    return <Chart result={result} kind={panel.chart} columns={columns} />;
+    return (
+      <Chart result={result} kind={panel.chart} columns={columns} presentation={panel.columns} />
+    );
   };
 
   return (
-    <section className={`panel span-${panel.span ?? "half"}`}>
+    <section
+      className={`panel span-${panel.span ?? "half"}${standsAlone ? " natural-height" : ""}`}
+    >
       <header className="panel-head">
-        <h3>{panel.title ?? panel.query}</h3>
+        <div className="panel-title">
+          <h3>{panel.title ?? panel.query}</h3>
+          <PanelActions panel={panel} result={result} columns={columns} />
+        </div>
         {panel.description ? <p>{panel.description}</p> : null}
       </header>
       {body()}
@@ -542,9 +742,18 @@ export function App() {
             {dash.description ? <p>{dash.description}</p> : null}
           </div>
           <div className="panel-grid">
-            {dash.panels.map((panel, i) => (
-              <Panel key={i} panel={panel} result={results[panel.query]} />
-            ))}
+            {(() => {
+              const alone = kpiStandsAlone(dash.panels);
+              return dash.panels.map((panel, i) => (
+                <Panel
+                  key={i}
+                  panel={panel}
+                  result={results[panel.query]}
+                  explorerUrl={dash.explorer_url ?? null}
+                  standsAlone={alone[i] ?? false}
+                />
+              ));
+            })()}
           </div>
         </section>
       ))}

@@ -322,6 +322,18 @@ export async function buildRelease(
     // Dashboards data. Panel headings are resolved here — panel title, then
     // the query's title, then its id — so the viewer needs no query registry.
     const queryTitles = new Map(queries.map((q) => [q.id, q.title ?? q.id]));
+    // Each panel links to the SQL behind it, which the source bundle ships
+    // under source/. Only files inside the bundle's allowlist get a link.
+    const querySql = new Map(
+      queries
+        .map((q) => [q.id, path.posix.normalize(q.file.replace(/\\/g, "/"))] as const)
+        .filter(([, file]) => file.startsWith("queries/"))
+        .map(([id, file]) => [id, `source/${file}`]),
+    );
+    // Lives here rather than in release.json so that it counts toward the
+    // content digest: it changes what the page renders.
+    const explorerUrl =
+      project.chain_sources?.find((c) => c.explorer_url)?.explorer_url ?? null;
     const dashboardIds: string[] = [];
     for (const dashboard of project.dashboards ?? []) {
       const rel = path.join("dashboards", `${dashboard.id}.json`);
@@ -330,10 +342,12 @@ export async function buildRelease(
         dashboard_id: dashboard.id,
         title: dashboard.title,
         description: dashboard.description ?? null,
+        explorer_url: explorerUrl,
         panels: dashboard.panels.map((panel) => ({
           ...panel,
           title: panel.title ?? queryTitles.get(panel.query) ?? panel.query,
           span: panel.span ?? "half",
+          sql: querySql.get(panel.query) ?? null,
         })),
       });
       files.push(rel);

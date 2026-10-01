@@ -51,6 +51,9 @@ describe("build", () => {
       fs.readFileSync(path.join(dist, "dashboards/overview.json"), "utf8"),
     );
     expect(dash.title).toBe("Amounts");
+    // Each panel links to its SQL in the source bundle; no chain, no explorer.
+    expect(dash.panels[0].sql).toBe("source/queries/raw_amounts.sql");
+    expect(dash.explorer_url).toBeNull();
 
     const raw = JSON.parse(
       fs.readFileSync(path.join(dist, "results/raw_amounts.json"), "utf8"),
