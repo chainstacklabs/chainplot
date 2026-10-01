@@ -16,7 +16,9 @@ than the file format.
 ## Containment
 
 Query execution happens in a forked child process (`src/query/workerMain.ts`),
-never in the CLI process:
+never in the CLI process. `build` runs all of a release's queries in one such
+process: snapshots load and models build once, then each query runs in turn
+against the same session.
 
 | Control | Where |
 |---|---|
@@ -25,15 +27,18 @@ never in the CLI process:
 | Extension autoinstall and autoload disabled | `workerMain.ts` |
 | `enable_external_access=false` **before any project SQL runs** | `workerMain.ts` |
 | Single-SELECT admission control, via DuckDB's parser | `src/query/sqlGuard.ts` |
-| 60 s deadline, SIGKILL on expiry | `runQuery.ts` |
+| 60 s deadline for loading and models, then 60 s per query; SIGKILL on expiry, naming the query | `runQuery.ts` |
 | Row limit enforced by stopping the reader, not by truncating after | `workerMain.ts` |
 
 Ordering matters and is the part that was wrong before 2026-09-15. Snapshots
 are read first, because `read_parquet` needs filesystem access. External
 access is then disabled, and only after that are models materialized and the
-query run. Models are project-supplied SQL like any other, so they must land
+queries run. Models are project-supplied SQL like any other, so they must land
 on the closed side of that door; DuckDB does not allow external access to be
-re-enabled within a session.
+re-enabled within a session, so the door stays shut for every query in the
+batch, not only the first. Sharing the session gives one query nothing over
+another: each is still admitted only as a single SELECT, which cannot change
+the session the next one runs in, and all of them come from the same recipe.
 
 ### Admission control
 
@@ -70,7 +75,8 @@ so a value cannot carry markup or a scheme into an `href`.
   to the bucket can serve a consistent, hostile release. **Fork only from
   buckets you would trust with the data itself.**
 - **Denial of service by a hostile recipe.** Bounded, not eliminated: a forked
-  query gets 60 s, a row limit, and a 1 GiB memory cap that spills to a temp
+  query gets 60 s, as does loading the snapshots and building its models, plus a
+  row limit and a 1 GiB memory cap that spills to a temp
   directory rather than failing. A release can still make your build slow, and
   can still fill that temp directory.
 - **Secrets you place inside the recipe directories.** The source bundle is an

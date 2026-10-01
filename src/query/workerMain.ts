@@ -15,12 +15,22 @@ const { inspectSerializedSql } = (await import(
   ).href
 )) as typeof import("./sqlGuard.js");
 
-interface WorkerRequest {
+interface WorkerQuery {
+  id: string;
   sql: string;
-  tables: Record<string, string>;
   rawAmountColumns?: string[];
   rowLimit?: number;
+}
+
+/**
+ * One session for a whole batch: snapshots load and models build once, then
+ * every query runs against them in turn. A build used to fork a worker per
+ * query, each repeating the load and the models before its one SELECT.
+ */
+interface WorkerRequest {
+  tables: Record<string, string>;
   models?: { id: string; sql: string }[];
+  queries: WorkerQuery[];
 }
 
 const MODEL_ID = /^[a-z0-9_]+$/;
@@ -64,6 +74,14 @@ function issueError(issue: SqlIssue): Error {
   err.chainplotCode = issue.code;
   return err;
 }
+
+/** One protocol line on stdout. The parent reads them as they arrive. */
+function emit(payload: unknown): void {
+  fs.writeSync(1, JSON.stringify(payload) + "\n");
+}
+
+/** What the session is busy with, so a failure can say which step it was. */
+let current: { model: string } | { query: string } | null = null;
 
 function quoteIdent(name: string): string {
   return `"${name.replaceAll('"', '""')}"`;
@@ -131,12 +149,7 @@ async function readRequest(): Promise<WorkerRequest> {
   return JSON.parse(buf) as WorkerRequest;
 }
 
-async function execute(req: WorkerRequest): Promise<{
-  columns: { name: string; logical_type: string }[];
-  rows: unknown[][];
-  truncated: boolean;
-}> {
-  const rowLimit = req.rowLimit ?? DEFAULT_ROW_LIMIT;
+async function execute(req: WorkerRequest): Promise<void> {
   const spillDir = fs.mkdtempSync(path.join(os.tmpdir(), "chainplot-duckdb-"));
   const instance = await DuckDBInstance.create(":memory:", {
     autoinstall_known_extensions: "false",
@@ -181,6 +194,7 @@ async function execute(req: WorkerRequest): Promise<{
       await conn.run(SORT_KEY_MACRO);
 
       for (const model of req.models ?? []) {
+        current = { model: model.id };
         if (!MODEL_ID.test(model.id)) {
           throw issueError({
             code: "validation",
@@ -198,24 +212,32 @@ async function execute(req: WorkerRequest): Promise<{
         }
       }
 
-      await assertAdmissible(conn, req.sql, {
-        label: "query",
-        rawAmountColumns: req.rawAmountColumns ?? [],
-      });
+      current = null;
+      emit({ ready: true });
 
-      // Stop reading at the limit instead of materializing everything and
-      // rejecting afterwards; `done` tells us whether more rows existed.
-      const reader = await conn.streamAndReadUntil(req.sql, rowLimit + 1);
-      const columns: { name: string; logical_type: string }[] = [];
-      for (let i = 0; i < reader.columnCount; i++) {
-        columns.push({
-          name: reader.columnName(i),
-          logical_type: reader.columnType(i).toString(),
+      for (const query of req.queries) {
+        current = { query: query.id };
+        const rowLimit = query.rowLimit ?? DEFAULT_ROW_LIMIT;
+        await assertAdmissible(conn, query.sql, {
+          label: "query",
+          rawAmountColumns: query.rawAmountColumns ?? [],
         });
+
+        // Stop reading at the limit instead of materializing everything and
+        // rejecting afterwards; `done` tells us whether more rows existed.
+        const reader = await conn.streamAndReadUntil(query.sql, rowLimit + 1);
+        const columns: { name: string; logical_type: string }[] = [];
+        for (let i = 0; i < reader.columnCount; i++) {
+          columns.push({
+            name: reader.columnName(i),
+            logical_type: reader.columnType(i).toString(),
+          });
+        }
+        const all = reader.getRowsJson();
+        const truncated = all.length > rowLimit || !reader.done;
+        emit({ ok: true, id: query.id, columns, rows: all.slice(0, rowLimit), truncated });
       }
-      const all = reader.getRowsJson();
-      const truncated = all.length > rowLimit || !reader.done;
-      return { columns, rows: all.slice(0, rowLimit), truncated };
+      current = null;
     } finally {
       (conn as unknown as { closeSync(): void }).closeSync();
     }
@@ -232,13 +254,13 @@ function reply(payload: unknown, exitCode: number): void {
 
 try {
   const req = await readRequest();
-  const { columns, rows, truncated } = await execute(req);
-  reply({ ok: true, columns, rows, truncated }, 0);
+  await execute(req);
+  process.exit(0);
 } catch (err) {
   const code =
     err !== null && typeof err === "object" && "chainplotCode" in err
       ? String((err as { chainplotCode: unknown }).chainplotCode)
       : "validation";
   const message = err instanceof Error ? err.message : String(err);
-  reply({ ok: false, code, message }, 1);
+  reply({ ok: false, code, message, ...(current ?? {}) }, 1);
 }
