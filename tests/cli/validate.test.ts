@@ -36,6 +36,26 @@ describe("validate", () => {
     expect(result.error?.code).toBe("validation");
   });
 
+  it("names the stray key, so a comma that split a flow-mapping title shows its cause", async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "chainplot-stray-key-"));
+    fs.cpSync(template, dir, { recursive: true });
+    const yaml = path.join(dir, "chainplot.yaml");
+    const doc = fs.readFileSync(yaml, "utf8");
+    // Unquoted, the comma ends the title and starts a second, nameless key.
+    fs.writeFileSync(
+      yaml,
+      doc.replace(
+        /      - query: raw_amounts\n[\s\S]*$/,
+        "      - { query: raw_amounts, chart: table, title: Raw amounts, by size }\n",
+      ),
+    );
+    const result = await runCliJson(["validate", "--json"], dir);
+    expect(result.ok).toBe(false);
+    expect(result.error?.code).toBe("validation");
+    expect(result.error?.message).toContain('must NOT have additional properties: "by size"');
+    expect(result.error?.pointer).toBe("/dashboards/0/panels/0/by size");
+  });
+
   it("rejects follow_finalized plus confirmation_depth", async () => {
     const result = await runCliJson(["validate", "--json"], path.join(fixtures, "follow-plus-depth"));
     expect(result.ok).toBe(false);

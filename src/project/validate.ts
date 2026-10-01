@@ -31,14 +31,31 @@ function error(
   };
 }
 
+function strayProperty(err: ErrorObject): string | null {
+  if (err.keyword !== "additionalProperties") return null;
+  const prop = (err.params as { additionalProperty?: string }).additionalProperty;
+  return typeof prop === "string" ? prop : null;
+}
+
 function pointerFromAjv(err: ErrorObject): string | null {
-  if (err.keyword === "additionalProperties") {
-    const prop = (err.params as { additionalProperty?: string }).additionalProperty;
-    if (typeof prop === "string") {
-      return `${err.instancePath}/${prop}`;
-    }
-  }
+  const prop = strayProperty(err);
+  if (prop !== null) return `${err.instancePath}/${prop}`;
   return err.instancePath || null;
+}
+
+/**
+ * Ajv's text, with the stray key named. "must NOT have additional properties"
+ * alone sends a reader hunting; the key usually gives the cause away, as when
+ * an unquoted comma in a flow-mapping title splits it into a second key.
+ */
+function messageFromAjv(errors: ErrorObject[]): string {
+  return errors
+    .map((err) => {
+      const text = `project${err.instancePath} ${err.message ?? "is invalid"}`;
+      const prop = strayProperty(err);
+      return prop === null ? text : `${text}: ${JSON.stringify(prop)}`;
+    })
+    .join(", ");
 }
 
 export function validateProject(
@@ -66,8 +83,8 @@ export function validateProject(
   if (!validateSchema(doc)) {
     const first = validateSchema.errors?.[0];
     const pointer = first ? pointerFromAjv(first) : null;
-    const message = first
-      ? ajv.errorsText(validateSchema.errors, { dataVar: "project" })
+    const message = validateSchema.errors?.length
+      ? messageFromAjv(validateSchema.errors)
       : "invalid project document";
     return {
       ok: false,
@@ -154,7 +171,7 @@ export function validateProject(
   // Snapshot files are authored inputs for dataset-only projects. Ingest
   // projects materialize them at apply time, so their absence is not an error.
   const isIngest = (project.event_sources ?? []).length > 0;
-  for (const dataset of project.datasets ?? []) {
+  for (const [index, dataset] of (project.datasets ?? []).entries()) {
     if (isIngest) break;
     const filePath = path.resolve(projectDir, dataset.snapshot);
     if (!fs.existsSync(filePath)) {
@@ -162,7 +179,7 @@ export function validateProject(
         ok: false,
         error: error("validation", `missing snapshot file: ${dataset.snapshot}`, {
           resource_id: dataset.id,
-          pointer: "/datasets",
+          pointer: `/datasets/${index}/snapshot`,
         }),
       };
     }

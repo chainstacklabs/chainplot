@@ -150,6 +150,21 @@ export async function buildRelease(
   // lets someone fork the release and recompute, and it is also what turns an
   // 800 KB page into hundreds of megabytes.
   const mode = opts.mode ?? project.policy?.release_mode ?? "results_only";
+  // A snapshot chainplot did not write itself — a lookup table a script fills
+  // in after `apply`, say — may simply not exist yet. Say which one, rather
+  // than surfacing the stat call's ENOENT as an internal error.
+  for (const [index, dataset] of datasets.entries()) {
+    if (!fs.existsSync(path.resolve(projectDir, dataset.snapshot))) {
+      throw {
+        ...error(
+          "validation",
+          `dataset ${dataset.id} has no snapshot at ${dataset.snapshot}`,
+          { resource_id: dataset.id, pointer: `/datasets/${index}/snapshot` },
+        ),
+        suggested_next: "produce the snapshot (`apply` writes an event source's own), then build again",
+      } satisfies CommandError;
+    }
+  }
   let copiedBytes = 0;
   for (const dataset of datasets) {
     const parquetPath = path.resolve(projectDir, dataset.snapshot);
