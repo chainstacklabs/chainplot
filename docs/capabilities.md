@@ -75,7 +75,7 @@ visible in review rather than only in production.
 | Chains per project | 1 | `schemas/project.schema.json` (`maxItems`) |
 | Contract addresses | 20 | `schemas/project.schema.json` (`maxItems`) |
 | Blocks per approved run | 100_000, `policy.block_budget` to change. A block count, not a duration: 100k blocks is about 14 days on Ethereum (12 s blocks), 2.3 days on Base (2 s), 7 hours on Arbitrum One (0.25 s) — set it for the chain you index | `src/plan/generate.ts` (`DEFAULT_BLOCK_BUDGET`) |
-| Query deadline | 60 s | `src/query/runQuery.ts` (`DEADLINE_MS`, SIGKILL) |
+| Query deadline | 60 s per query, and 60 s for loading snapshots and building models, which a build does once for all its queries | `src/query/runQuery.ts` (`DEADLINE_MS`, SIGKILL) |
 | DuckDB memory | 1 GiB, spills to a temp dir | `src/query/workerMain.ts` (`MEMORY_LIMIT`) |
 | Returned rows | 10_000, `policy.row_limit` to change | `src/project/limits.ts`, enforced in `src/query/workerMain.ts` (the reader stops at the limit) |
 | RPC job wall clock | 30 min, resumable | `src/ingest/rindexer/runBounded.ts` |
@@ -86,8 +86,11 @@ visible in review rather than only in production.
 | `fork` per-request timeout | 30 s | `src/fork/fetchGuard.ts` (`FORK_LIMITS`) |
 | `fork` redirect hops | 0 | `src/fork/fetchGuard.ts` (refused outright) |
 
-`CHAINPLOT_QUERY_MEMORY_LIMIT` overrides the memory figure; the query still
-spills to disk rather than failing when it goes over.
+`CHAINPLOT_QUERY_MEMORY_LIMIT` overrides the memory figure, as a size such as
+`2GB` or `1536MB`; anything else is refused by name. The query still spills to
+disk rather than failing when it goes over. The default stays small because a
+forked recipe is untrusted; a project with millions of rows behind its models
+builds far faster with 2–3 GB, where the memory is there to give.
 
 The row limit bounds the *download*, not the rendering. The table is
 virtualised — 5,000 rows put 26 in the DOM — so a wide result no longer

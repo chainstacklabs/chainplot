@@ -15,12 +15,24 @@ const { inspectSerializedSql } = (await import(
   ).href
 )) as typeof import("./sqlGuard.js");
 
-interface WorkerRequest {
+interface WorkerQuery {
+  id: string;
   sql: string;
-  tables: Record<string, string>;
   rawAmountColumns?: string[];
   rowLimit?: number;
+}
+
+/**
+ * One session for a whole batch: snapshots load and models build once, then
+ * every query runs against them in turn. A build used to fork a worker per
+ * query, each repeating the load and the models before its one SELECT.
+ */
+interface WorkerRequest {
+  tables: Record<string, string>;
   models?: { id: string; sql: string }[];
+  queries: WorkerQuery[];
+  /** Validated by the parent; the worker's own environment is stripped. */
+  memoryLimit?: string;
 }
 
 const MODEL_ID = /^[a-z0-9_]+$/;
@@ -30,8 +42,9 @@ const DEFAULT_ROW_LIMIT = 10_000;
 
 // A forked recipe runs here, so an unbounded query is the host's problem.
 // DuckDB spills past this rather than failing, provided a temp directory
-// exists — without one it raises an out-of-memory error instead.
-const MEMORY_LIMIT = process.env.CHAINPLOT_QUERY_MEMORY_LIMIT ?? "1GB";
+// exists — without one it raises an out-of-memory error instead. The parent
+// passes CHAINPLOT_QUERY_MEMORY_LIMIT in the request when it is set.
+const DEFAULT_MEMORY_LIMIT = "1GB";
 
 /**
  * Canonical sort key for uint256/int256 amounts carried as decimal strings.
@@ -64,6 +77,14 @@ function issueError(issue: SqlIssue): Error {
   err.chainplotCode = issue.code;
   return err;
 }
+
+/** One protocol line on stdout. The parent reads them as they arrive. */
+function emit(payload: unknown): void {
+  fs.writeSync(1, JSON.stringify(payload) + "\n");
+}
+
+/** What the session is busy with, so a failure can say which step it was. */
+let current: { model: string } | { query: string } | null = null;
 
 function quoteIdent(name: string): string {
   return `"${name.replaceAll('"', '""')}"`;
@@ -131,27 +152,29 @@ async function readRequest(): Promise<WorkerRequest> {
   return JSON.parse(buf) as WorkerRequest;
 }
 
-async function execute(req: WorkerRequest): Promise<{
-  columns: { name: string; logical_type: string }[];
-  rows: unknown[][];
-  truncated: boolean;
-}> {
-  const rowLimit = req.rowLimit ?? DEFAULT_ROW_LIMIT;
+async function execute(req: WorkerRequest): Promise<void> {
   const spillDir = fs.mkdtempSync(path.join(os.tmpdir(), "chainplot-duckdb-"));
   const instance = await DuckDBInstance.create(":memory:", {
     autoinstall_known_extensions: "false",
     autoload_known_extensions: "false",
-    memory_limit: MEMORY_LIMIT,
+    memory_limit: req.memoryLimit ?? DEFAULT_MEMORY_LIMIT,
     temp_directory: spillDir,
   });
   try {
     const conn = (await instance.connect()) as unknown as Conn;
     try {
       // Snapshots are the only filesystem reads this process is allowed to
-      // make, so they happen first...
-      for (const [name, parquetPath] of Object.entries(req.tables)) {
+      // make: exactly those files, not their directories, so a model cannot
+      // reach a file sitting beside one. The list is fixed before the door
+      // shuts, and DuckDB refuses to widen it or to reopen the door after.
+      // Each snapshot is then a view read in place, so a model scans only
+      // the columns it uses instead of a full copy held in memory.
+      const snapshots = Object.entries(req.tables).map(
+        ([name, file]) => [name, path.resolve(file)] as const,
+      );
+      if (snapshots.length > 0) {
         await conn.run(
-          `CREATE TABLE ${quoteIdent(name)} AS SELECT * FROM read_parquet(${quoteString(parquetPath)})`,
+          `SET allowed_paths = [${snapshots.map(([, file]) => quoteString(file)).join(", ")}]`,
         );
       }
 
@@ -160,6 +183,11 @@ async function execute(req: WorkerRequest): Promise<{
       // trusted than the query itself, so they must land on this side of it.
       // DuckDB does not allow re-enabling external access in a session.
       await conn.run("SET enable_external_access=false");
+      for (const [name, file] of snapshots) {
+        await conn.run(
+          `CREATE VIEW ${quoteIdent(name)} AS SELECT * FROM read_parquet(${quoteString(file)})`,
+        );
+      }
       // rindexer exports block_timestamp as TIMESTAMP WITH TIME ZONE, and
       // DuckDB renders, casts and buckets that type in the session's
       // TimeZone, which defaults to the machine's. Pinning UTC is what makes
@@ -181,6 +209,7 @@ async function execute(req: WorkerRequest): Promise<{
       await conn.run(SORT_KEY_MACRO);
 
       for (const model of req.models ?? []) {
+        current = { model: model.id };
         if (!MODEL_ID.test(model.id)) {
           throw issueError({
             code: "validation",
@@ -198,24 +227,32 @@ async function execute(req: WorkerRequest): Promise<{
         }
       }
 
-      await assertAdmissible(conn, req.sql, {
-        label: "query",
-        rawAmountColumns: req.rawAmountColumns ?? [],
-      });
+      current = null;
+      emit({ ready: true });
 
-      // Stop reading at the limit instead of materializing everything and
-      // rejecting afterwards; `done` tells us whether more rows existed.
-      const reader = await conn.streamAndReadUntil(req.sql, rowLimit + 1);
-      const columns: { name: string; logical_type: string }[] = [];
-      for (let i = 0; i < reader.columnCount; i++) {
-        columns.push({
-          name: reader.columnName(i),
-          logical_type: reader.columnType(i).toString(),
+      for (const query of req.queries) {
+        current = { query: query.id };
+        const rowLimit = query.rowLimit ?? DEFAULT_ROW_LIMIT;
+        await assertAdmissible(conn, query.sql, {
+          label: "query",
+          rawAmountColumns: query.rawAmountColumns ?? [],
         });
+
+        // Stop reading at the limit instead of materializing everything and
+        // rejecting afterwards; `done` tells us whether more rows existed.
+        const reader = await conn.streamAndReadUntil(query.sql, rowLimit + 1);
+        const columns: { name: string; logical_type: string }[] = [];
+        for (let i = 0; i < reader.columnCount; i++) {
+          columns.push({
+            name: reader.columnName(i),
+            logical_type: reader.columnType(i).toString(),
+          });
+        }
+        const all = reader.getRowsJson();
+        const truncated = all.length > rowLimit || !reader.done;
+        emit({ ok: true, id: query.id, columns, rows: all.slice(0, rowLimit), truncated });
       }
-      const all = reader.getRowsJson();
-      const truncated = all.length > rowLimit || !reader.done;
-      return { columns, rows: all.slice(0, rowLimit), truncated };
+      current = null;
     } finally {
       (conn as unknown as { closeSync(): void }).closeSync();
     }
@@ -232,13 +269,13 @@ function reply(payload: unknown, exitCode: number): void {
 
 try {
   const req = await readRequest();
-  const { columns, rows, truncated } = await execute(req);
-  reply({ ok: true, columns, rows, truncated }, 0);
+  await execute(req);
+  process.exit(0);
 } catch (err) {
   const code =
     err !== null && typeof err === "object" && "chainplotCode" in err
       ? String((err as { chainplotCode: unknown }).chainplotCode)
       : "validation";
   const message = err instanceof Error ? err.message : String(err);
-  reply({ ok: false, code, message }, 1);
+  reply({ ok: false, code, message, ...(current ?? {}) }, 1);
 }

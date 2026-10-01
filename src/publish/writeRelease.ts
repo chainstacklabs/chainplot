@@ -6,7 +6,7 @@ import type { CommandError } from "../cli/envelope.js";
 import { loadProject } from "../project/load.js";
 import { validateProject } from "../project/validate.js";
 import { topoSortModels } from "../project/modelGraph.js";
-import { runQuery } from "../query/runQuery.js";
+import { runQueries } from "../query/runQuery.js";
 import { isComplete, requiredEnd } from "../ingest/coverage.js";
 import { readCoverageFile, segmentsFor } from "../ingest/coverageStore.js";
 import { lastProvenCompleteBlock } from "../ingest/coverage.js";
@@ -178,7 +178,7 @@ export async function buildRelease(
     );
   }
 
-  // Models materialize in dependency order for every query.
+  // Models materialize in dependency order, once per build.
   const modelOrder = topoSortModels(models);
   const modelSql: { id: string; sql: string }[] = modelOrder.map((id) => {
     const model = models.find((m) => m.id === id)!;
@@ -198,8 +198,13 @@ export async function buildRelease(
   const files: string[] = [];
 
   try {
-    // Queries (with models materialized first).
-    for (const query of queries) {
+    // Queries: one isolated session for the whole release. Snapshots load and
+    // models build once, then every query runs against them in turn.
+    //
+    // Every dataset is in scope, not just the declared one, so a model over
+    // dataset A can feed a query on dataset B and a query can join across
+    // datasets. `query.dataset` still names the provenance.
+    const planned = queries.map((query) => {
       const dataset = datasetById.get(query.dataset);
       if (!dataset) {
         throw error("validation", `unknown dataset: ${query.dataset}`, {
@@ -207,20 +212,22 @@ export async function buildRelease(
           pointer: "/queries",
         });
       }
-      const sqlPath = path.resolve(projectDir, query.file);
-      const data = await runQuery({
-        sql: fs.readFileSync(sqlPath, "utf8"),
-        // Every dataset is in scope, not just the declared one. Models are
-        // materialized into each query's session, so loading one table meant a
-        // model over dataset A failed every query on dataset B — which made
-        // models unusable in any multi-dataset project. It also lets a query
-        // join across datasets. `query.dataset` still names the provenance.
-        tables: allTables,
+      const sql = fs.readFileSync(path.resolve(projectDir, query.file), "utf8");
+      return { query, dataset, sql };
+    });
+    const results = await runQueries({
+      tables: allTables,
+      models: modelSql,
+      queries: planned.map(({ query, sql }) => ({
+        id: query.id,
+        sql,
         rawAmountColumns: rawAmountNames(query.raw_amount_columns),
         rowLimit: rowLimitFor(project),
-        models: modelSql,
-      });
+      })),
+    });
 
+    for (const [i, { query, dataset, sql }] of planned.entries()) {
+      const data = results[i]!;
       const rel = path.join("results", `${query.id}.json`);
       writeJson(path.join(staging, rel), {
         schema_version: 1,
@@ -231,7 +238,7 @@ export async function buildRelease(
         columns: decorateColumns(data.columns, query.raw_amount_columns),
         rows: data.rows,
         snapshot: dataset.snapshot,
-        query_digest: sha256(fs.readFileSync(sqlPath, "utf8")),
+        query_digest: sha256(sql),
         raw_amount_columns: rawAmountNames(query.raw_amount_columns),
       });
       files.push(rel);
