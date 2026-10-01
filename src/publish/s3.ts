@@ -1,6 +1,10 @@
 import {
   S3Client,
+  AbortMultipartUploadCommand,
+  CompleteMultipartUploadCommand,
+  CreateMultipartUploadCommand,
   PutObjectCommand,
+  UploadPartCommand,
   GetObjectCommand,
   HeadObjectCommand,
   DeleteObjectCommand,
@@ -91,8 +95,43 @@ export interface S3Ops {
   delete(key: string): Promise<void>;
 }
 
-export function makeS3Ops(env: S3TargetEnv): S3Ops {
-  const client = new S3Client({
+/**
+ * How large bodies go up.
+ *
+ * A dataset_referenced release uploads parquet in the hundreds of megabytes.
+ * As one PutObject, a single dropped TLS record anywhere in the stream fails
+ * the whole file. Above `partSize` a body goes up as a multipart upload
+ * instead, and each part is retried on its own. 16 MiB keeps a retry cheap and
+ * stays well inside S3's 10,000-part limit; R2 wants every part but the last
+ * the same size, which a fixed `partSize` gives.
+ */
+export interface UploadTuning {
+  partSize: number;
+  attempts: number;
+  backoffMs: number;
+}
+
+const DEFAULT_TUNING: UploadTuning = {
+  partSize: 16 * 1024 * 1024,
+  attempts: 4,
+  backoffMs: 1000,
+};
+
+// The one SDK method used, and the response fields read; tests hand in a fake.
+interface S3Response {
+  ETag?: string;
+  UploadId?: string;
+  ContentLength?: number;
+  Body?: unknown;
+}
+type Send = (command: object) => Promise<S3Response>;
+interface S3Sender {
+  send(command: object): Promise<unknown>;
+}
+
+export function makeS3Ops(
+  env: S3TargetEnv,
+  client: S3Sender = new S3Client({
     endpoint: env.endpoint,
     region: env.region ?? "auto",
     credentials: {
@@ -100,7 +139,10 @@ export function makeS3Ops(env: S3TargetEnv): S3Ops {
       secretAccessKey: env.secretAccessKey,
     },
     forcePathStyle: true,
-  });
+  }),
+  tuning: UploadTuning = DEFAULT_TUNING,
+): S3Ops {
+  const send = client.send.bind(client) as Send;
   return {
     async put(key, body, conditions) {
       const input: {
@@ -126,8 +168,14 @@ export function makeS3Ops(env: S3TargetEnv): S3Ops {
       if (conditions?.cacheControl !== undefined) {
         input.CacheControl = conditions.cacheControl;
       }
+      // A conditional write is a pointer, never a dataset, and a multipart
+      // upload cannot carry the condition.
+      const conditional = input.IfMatch !== undefined || input.IfNoneMatch !== undefined;
+      if (typeof body !== "string" && body.byteLength > tuning.partSize && !conditional) {
+        return putMultipart(send, input, body, tuning);
+      }
       try {
-        const out = await client.send(new PutObjectCommand(input));
+        const out = await send(new PutObjectCommand(input));
         return { etag: String(out.ETag ?? "") };
       } catch (err) {
         throw mapS3Error(err);
@@ -135,7 +183,7 @@ export function makeS3Ops(env: S3TargetEnv): S3Ops {
     },
     async get(key) {
       try {
-        const out = await client.send(new GetObjectCommand({ Bucket: env.bucket, Key: key }));
+        const out = await send(new GetObjectCommand({ Bucket: env.bucket, Key: key }));
         return {
           body: await streamToBuffer(out.Body),
           etag: String(out.ETag ?? ""),
@@ -147,7 +195,7 @@ export function makeS3Ops(env: S3TargetEnv): S3Ops {
     },
     async head(key) {
       try {
-        const out = await client.send(new HeadObjectCommand({ Bucket: env.bucket, Key: key }));
+        const out = await send(new HeadObjectCommand({ Bucket: env.bucket, Key: key }));
         return { size: Number(out.ContentLength ?? 0), etag: String(out.ETag ?? "") };
       } catch (err) {
         if (isNotFound(err)) return null;
@@ -155,9 +203,69 @@ export function makeS3Ops(env: S3TargetEnv): S3Ops {
       }
     },
     async delete(key) {
-      await client.send(new DeleteObjectCommand({ Bucket: env.bucket, Key: key }));
+      await send(new DeleteObjectCommand({ Bucket: env.bucket, Key: key }));
     },
   };
+}
+
+async function putMultipart(
+  send: Send,
+  input: { Bucket: string; Key: string; ContentType?: string; CacheControl?: string },
+  body: Uint8Array,
+  tuning: UploadTuning,
+): Promise<{ etag: string }> {
+  const { Bucket, Key } = input;
+  const created = await send(
+    new CreateMultipartUploadCommand({
+      Bucket,
+      Key,
+      ContentType: input.ContentType,
+      CacheControl: input.CacheControl,
+    }),
+  );
+  const UploadId = String(created.UploadId);
+  const count = Math.ceil(body.byteLength / tuning.partSize);
+  try {
+    const parts: { PartNumber: number; ETag: string }[] = [];
+    // One part at a time: the body is already in memory, and parallel parts
+    // would only put more of it on a connection that is dropping records.
+    for (let i = 0; i < count; i++) {
+      const PartNumber = i + 1;
+      const Body = body.subarray(i * tuning.partSize, (i + 1) * tuning.partSize);
+      const out = await withRetries(tuning, () =>
+        send(new UploadPartCommand({ Bucket, Key, UploadId, PartNumber, Body })),
+      );
+      parts.push({ PartNumber, ETag: String(out.ETag ?? "") });
+    }
+    const done = await send(
+      new CompleteMultipartUploadCommand({ Bucket, Key, UploadId, MultipartUpload: { Parts: parts } }),
+    );
+    return { etag: String(done.ETag ?? "") };
+  } catch (err) {
+    // An upload left open keeps its parts, and its storage bill, until the
+    // bucket's lifecycle rule (if any) clears it.
+    await send(new AbortMultipartUploadCommand({ Bucket, Key, UploadId })).catch(() => {});
+    throw commandError(
+      "transient_dependency",
+      `upload of ${Key} failed after ${tuning.attempts} attempts at one part: ${errorText(err)}`,
+      { retryable: true, suggested_next: "publish again; parts already sent are not reused" },
+    );
+  }
+}
+
+async function withRetries<T>(tuning: UploadTuning, run: () => Promise<T>): Promise<T> {
+  for (let attempt = 1; ; attempt++) {
+    try {
+      return await run();
+    } catch (err) {
+      if (attempt >= tuning.attempts) throw err;
+      await new Promise((resolve) => setTimeout(resolve, tuning.backoffMs * attempt));
+    }
+  }
+}
+
+function errorText(err: unknown): string {
+  return err instanceof Error ? err.message.trim() : String(err);
 }
 
 function isNotFound(err: unknown): boolean {
