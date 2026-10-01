@@ -39,6 +39,7 @@ Machine-readable source of truth: `chainplot capabilities --json`.
 - Panel columns: `columns.<name>.label` / `.description` (header tooltip) / `.kind` (`address`, `tx`, `block`, `text`) / `.full` (hex unshortened). Addresses are detected from their values, `tx_hash` and `block_number` by name; 32-byte values are never guessed to be transactions.
 - Explorer links: `chain_sources[].explorer_url` links address, transaction and block cells to `<url>/address/…`, `/tx/…`, `/block/…`. The first chain source that declares one is used.
 - Viewer affordances: copy button on every hex cell, a link to each panel's SQL in the source bundle, CSV download of a table's or chart's rows (exact values, query column names), a filter on tables over ten rows
+- Layout: a bar chart with up to 30 bars labels every bar, tilted when crowded; past that its axis thins labels like a line's. A KPI beside a table or chart keeps its own height; two KPIs side by side are levelled
 
 ## SQL admission control
 

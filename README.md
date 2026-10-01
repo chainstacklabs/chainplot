@@ -151,9 +151,9 @@ from a closed set — `validation`, `policy_refused`, `missing_credentials`,
 
 ## Presentation
 
-Panels are declarative. `title`, `description`, `span`, `hide_columns` and
-`unit` shape the page; `decimals`, `symbol` and `label` on a raw amount column
-shape the numbers. Charts are `line`, `bar`, `area`, `kpi`, `table` — an
+Panels are declarative. `title`, `description`, `span`, `hide_columns`,
+`unit` and `columns` shape the page; `decimals`, `symbol` and `label` on a raw
+amount column shape the numbers. Charts are `line`, `bar`, `area`, `kpi`, `table` — an
 allowlist, not an embedded plotting language.
 
 Display metadata never alters stored values. `decimals: 6` renders
