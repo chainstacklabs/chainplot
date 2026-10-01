@@ -100,6 +100,62 @@ describe("query batches", () => {
     });
   });
 
+  // Snapshots are read in place through views, with access allowed to exactly
+  // the declared files. Another parquet beside one of them stays out of reach.
+  it("reads the declared snapshot and nothing beside it", async () => {
+    const parquet = tempCopyOfFixture();
+    const sibling = path.join(path.dirname(parquet), "other.parquet");
+    fs.copyFileSync(parquet, sibling);
+    const ok = await runQueries({
+      tables: { amounts: parquet },
+      queries: [query("declared", "SELECT COUNT(*) FROM amounts")],
+    });
+    expect(ok[0]!.rows[0]![0]).toBe("8");
+    const run = runQueries({
+      tables: { amounts: parquet },
+      queries: [query("sibling", `SELECT COUNT(*) FROM read_parquet('${sibling}')`)],
+    });
+    await expect(run).rejects.toThrow(/file system operations are disabled/);
+  });
+
+  describe("CHAINPLOT_QUERY_MEMORY_LIMIT", () => {
+    const saved = process.env.CHAINPLOT_QUERY_MEMORY_LIMIT;
+    const restore = () => {
+      if (saved === undefined) delete process.env.CHAINPLOT_QUERY_MEMORY_LIMIT;
+      else process.env.CHAINPLOT_QUERY_MEMORY_LIMIT = saved;
+    };
+
+    // The worker's environment is stripped to PATH/HOME/LANG, so the override
+    // documented in capabilities.md used to stop at the parent.
+    it("reaches the worker", async () => {
+      process.env.CHAINPLOT_QUERY_MEMORY_LIMIT = "2GB";
+      try {
+        const [result] = await runQueries({
+          tables: { amounts: tempCopyOfFixture() },
+          queries: [query("limit", "SELECT current_setting('memory_limit')")],
+        });
+        // 2GB is decimal; DuckDB reports it in binary units.
+        expect(result!.rows[0]![0]).toBe("1.8 GiB");
+      } finally {
+        restore();
+      }
+    });
+
+    it("refuses a value that is not a size", async () => {
+      process.env.CHAINPLOT_QUERY_MEMORY_LIMIT = "lots";
+      try {
+        const run = runQueries({
+          tables: { amounts: tempCopyOfFixture() },
+          queries: [query("limit", "SELECT 1")],
+        });
+        await expect(run).rejects.toMatchObject({ code: "validation" });
+        await expect(run).rejects.toThrow(/CHAINPLOT_QUERY_MEMORY_LIMIT/);
+      } finally {
+        restore();
+      }
+    });
+  });
+
   it("runs nothing for an empty batch", async () => {
     expect(await runQueries({ tables: {}, queries: [] })).toEqual([]);
   });

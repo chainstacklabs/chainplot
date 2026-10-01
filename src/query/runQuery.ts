@@ -60,6 +60,26 @@ function error(
   };
 }
 
+// A DuckDB size: a number and a unit, as in 2GB or 1.5GiB.
+const MEMORY_SIZE = /^\d+(\.\d+)?\s*(B|KB|MB|GB|TB|KiB|MiB|GiB|TiB)$/i;
+
+/**
+ * The worker's memory cap, from CHAINPLOT_QUERY_MEMORY_LIMIT when set. Read
+ * here because the worker starts with a stripped environment, and checked
+ * here so a typo is refused by name instead of surfacing as a DuckDB error.
+ */
+function memoryLimit(): string | undefined {
+  const raw = process.env.CHAINPLOT_QUERY_MEMORY_LIMIT?.trim();
+  if (!raw) return undefined;
+  if (!MEMORY_SIZE.test(raw)) {
+    throw error(
+      "validation",
+      `CHAINPLOT_QUERY_MEMORY_LIMIT must be a size such as 2GB or 1536MB, not ${JSON.stringify(raw)}`,
+    );
+  }
+  return raw;
+}
+
 function workerLaunch(): { modulePath: string; execArgv: string[] } {
   const self = fileURLToPath(import.meta.url);
   const isTs = self.endsWith(".ts");
@@ -110,6 +130,12 @@ export function runQueries(
   opts: { deadlineMs?: number } = {},
 ): Promise<BatchResult[]> {
   if (req.queries.length === 0) return Promise.resolve([]);
+  let limit: string | undefined;
+  try {
+    limit = memoryLimit();
+  } catch (err) {
+    return Promise.reject(err);
+  }
   const deadlineMs = opts.deadlineMs ?? DEADLINE_MS;
   const { modulePath, execArgv } = workerLaunch();
   return new Promise((resolve, reject) => {
@@ -212,7 +238,12 @@ export function runQueries(
     });
 
     child.stdin?.write(
-      JSON.stringify({ tables: req.tables, models: req.models ?? [], queries: req.queries }) + "\n",
+      JSON.stringify({
+        tables: req.tables,
+        models: req.models ?? [],
+        queries: req.queries,
+        memoryLimit: limit,
+      }) + "\n",
     );
     child.stdin?.end();
   });

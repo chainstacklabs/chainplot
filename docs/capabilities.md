@@ -86,8 +86,11 @@ visible in review rather than only in production.
 | `fork` per-request timeout | 30 s | `src/fork/fetchGuard.ts` (`FORK_LIMITS`) |
 | `fork` redirect hops | 0 | `src/fork/fetchGuard.ts` (refused outright) |
 
-`CHAINPLOT_QUERY_MEMORY_LIMIT` overrides the memory figure; the query still
-spills to disk rather than failing when it goes over.
+`CHAINPLOT_QUERY_MEMORY_LIMIT` overrides the memory figure, as a size such as
+`2GB` or `1536MB`; anything else is refused by name. The query still spills to
+disk rather than failing when it goes over. The default stays small because a
+forked recipe is untrusted; a project with millions of rows behind its models
+builds far faster with 2–3 GB, where the memory is there to give.
 
 The row limit bounds the *download*, not the rendering. The table is
 virtualised — 5,000 rows put 26 in the DOM — so a wide result no longer

@@ -31,6 +31,8 @@ interface WorkerRequest {
   tables: Record<string, string>;
   models?: { id: string; sql: string }[];
   queries: WorkerQuery[];
+  /** Validated by the parent; the worker's own environment is stripped. */
+  memoryLimit?: string;
 }
 
 const MODEL_ID = /^[a-z0-9_]+$/;
@@ -40,8 +42,9 @@ const DEFAULT_ROW_LIMIT = 10_000;
 
 // A forked recipe runs here, so an unbounded query is the host's problem.
 // DuckDB spills past this rather than failing, provided a temp directory
-// exists — without one it raises an out-of-memory error instead.
-const MEMORY_LIMIT = process.env.CHAINPLOT_QUERY_MEMORY_LIMIT ?? "1GB";
+// exists — without one it raises an out-of-memory error instead. The parent
+// passes CHAINPLOT_QUERY_MEMORY_LIMIT in the request when it is set.
+const DEFAULT_MEMORY_LIMIT = "1GB";
 
 /**
  * Canonical sort key for uint256/int256 amounts carried as decimal strings.
@@ -154,17 +157,24 @@ async function execute(req: WorkerRequest): Promise<void> {
   const instance = await DuckDBInstance.create(":memory:", {
     autoinstall_known_extensions: "false",
     autoload_known_extensions: "false",
-    memory_limit: MEMORY_LIMIT,
+    memory_limit: req.memoryLimit ?? DEFAULT_MEMORY_LIMIT,
     temp_directory: spillDir,
   });
   try {
     const conn = (await instance.connect()) as unknown as Conn;
     try {
       // Snapshots are the only filesystem reads this process is allowed to
-      // make, so they happen first...
-      for (const [name, parquetPath] of Object.entries(req.tables)) {
+      // make: exactly those files, not their directories, so a model cannot
+      // reach a file sitting beside one. The list is fixed before the door
+      // shuts, and DuckDB refuses to widen it or to reopen the door after.
+      // Each snapshot is then a view read in place, so a model scans only
+      // the columns it uses instead of a full copy held in memory.
+      const snapshots = Object.entries(req.tables).map(
+        ([name, file]) => [name, path.resolve(file)] as const,
+      );
+      if (snapshots.length > 0) {
         await conn.run(
-          `CREATE TABLE ${quoteIdent(name)} AS SELECT * FROM read_parquet(${quoteString(parquetPath)})`,
+          `SET allowed_paths = [${snapshots.map(([, file]) => quoteString(file)).join(", ")}]`,
         );
       }
 
@@ -173,6 +183,11 @@ async function execute(req: WorkerRequest): Promise<void> {
       // trusted than the query itself, so they must land on this side of it.
       // DuckDB does not allow re-enabling external access in a session.
       await conn.run("SET enable_external_access=false");
+      for (const [name, file] of snapshots) {
+        await conn.run(
+          `CREATE VIEW ${quoteIdent(name)} AS SELECT * FROM read_parquet(${quoteString(file)})`,
+        );
+      }
       // rindexer exports block_timestamp as TIMESTAMP WITH TIME ZONE, and
       // DuckDB renders, casts and buckets that type in the session's
       // TimeZone, which defaults to the machine's. Pinning UTC is what makes

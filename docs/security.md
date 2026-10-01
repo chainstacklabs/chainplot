@@ -24,16 +24,19 @@ against the same session.
 |---|---|
 | Separate process, env stripped to `PATH`/`HOME`/`LANG` | `src/query/runQuery.ts` |
 | In-memory DuckDB; no database file on disk | `workerMain.ts` |
+| File reads allowed for exactly the declared snapshots (`allowed_paths`), not their directories | `workerMain.ts` |
 | Extension autoinstall and autoload disabled | `workerMain.ts` |
 | `enable_external_access=false` **before any project SQL runs** | `workerMain.ts` |
 | Single-SELECT admission control, via DuckDB's parser | `src/query/sqlGuard.ts` |
 | 60 s deadline for loading and models, then 60 s per query; SIGKILL on expiry, naming the query | `runQuery.ts` |
 | Row limit enforced by stopping the reader, not by truncating after | `workerMain.ts` |
 
-Ordering matters and is the part that was wrong before 2026-09-15. Snapshots
-are read first, because `read_parquet` needs filesystem access. External
-access is then disabled, and only after that are models materialized and the
-queries run. Models are project-supplied SQL like any other, so they must land
+Ordering matters and is the part that was wrong before 2026-09-15. The
+snapshot files are allowlisted first, by exact path, and external access is
+then disabled; DuckDB refuses both to widen that list and to re-enable access
+afterwards. Each snapshot is a view read in place, so a model scans only the
+columns it uses rather than a copy of every column held in memory. Only after
+that are models materialized and the queries run. Models are project-supplied SQL like any other, so they must land
 on the closed side of that door; DuckDB does not allow external access to be
 re-enabled within a session, so the door stays shut for every query in the
 batch, not only the first. Sharing the session gives one query nothing over
